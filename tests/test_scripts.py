@@ -177,6 +177,17 @@ class TestRunningScript:
         await rs.get_return_code()
         assert await rs.get_output(len("hello, world\ngoodbye\n")) == ""
 
+    async def test_working_directory(
+        self,
+        tmp_path: Path,
+        make_script: Callable[[str], Script],
+    ) -> None:
+        (tmp_path / "foo.txt").write_text("Hello, world!")
+        rs = RunningScript(make_script("cat ./foo.txt"))
+
+        await rs.get_return_code()
+        assert await rs.get_output() == "Hello, world!"
+
     async def test_get_status(self, make_script: Callable[[str], Script]) -> None:
         rs = RunningScript(
             make_script(
@@ -202,6 +213,7 @@ class TestRunningScript:
         rs = RunningScript(
             make_script(
                 """
+                sleep 0.05
                 echo "## progress: 0.5"
                 sleep 0.05
                 echo "## progress: 3/4"
@@ -210,8 +222,12 @@ class TestRunningScript:
                 """
             )
         )
-        assert await rs.get_progress((0, 1)) == (0.5, 1)
-        assert await rs.get_progress((0, 1)) == (0.5, 1)
+        # Initially should have 'invalid' progress
+        assert await rs.get_progress() == (0, 0)
+        # Then wait for first progress
+        assert await rs.get_progress((0, 0)) == (0.5, 1)
+        # Shouldn't block if ask again
+        assert await rs.get_progress((0, 0)) == (0.5, 1)
         assert await rs.get_progress() == (0.5, 1)
 
         # If we ask for change should block
@@ -224,12 +240,12 @@ class TestRunningScript:
         await rs.get_return_code()
         assert await rs.get_progress((4, 4)) == (4, 4)
 
-    async def test_kill(self, make_script: Callable[[str], Script]) -> None:
+    async def test_kill_terminate(self, make_script: Callable[[str], Script]) -> None:
         rs = RunningScript(
             make_script(
                 """
                 echo You will see this...
-                sleep 3
+                sleep 10
                 echo You can't print this...
                 """
             )
@@ -237,6 +253,46 @@ class TestRunningScript:
         # Make sure started
         assert await rs.get_output(0) == "You will see this...\n"
 
+        await rs.kill()
+
+        assert await rs.get_return_code() < 0
+        assert await rs.get_output() == "You will see this...\n"
+
+    async def test_kill_timeout(self, make_script: Callable[[str], Script]) -> None:
+        rs = RunningScript(
+            make_script(
+                """
+                trap -- "" SIGTERM
+                
+                echo You will see this...
+                sleep 10
+                echo You can't print this...
+                """
+            )
+        )
+        # Make sure started
+        assert await rs.get_output(0) == "You will see this...\n"
+
+        await rs.kill(0.1)
+
+        assert await rs.get_output() == "You will see this...\n"
+        assert await rs.get_return_code() < 0
+
+    async def test_kill_repeated(self, make_script: Callable[[str], Script]) -> None:
+        rs = RunningScript(
+            make_script(
+                """
+                echo You will see this...
+                sleep 10
+                echo You can't print this...
+                """
+            )
+        )
+        # Make sure started
+        assert await rs.get_output(0) == "You will see this...\n"
+
+        await rs.kill()
+        await rs.kill()
         await rs.kill()
 
         assert await rs.get_return_code() < 0

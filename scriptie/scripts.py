@@ -122,14 +122,14 @@ class RunningScript:
     start_time: datetime.datetime
     end_time: datetime.datetime | None
 
-    _output: str
-    _status: str
-    _progress: tuple[float, float]
+    output: str
+    status: str
+    progress: tuple[float, float]
 
     # Also used as an indicator of exited-ness. Will only be set to a non-None
     # value after all other changes (i.e. output, status, progress) have
     # been registered.
-    _return_code: int | None
+    return_code: int | None
 
     # Called (and the list emptied) whenever one of the above changes
     _on_change: list[Callable[[], None]]
@@ -147,10 +147,10 @@ class RunningScript:
         self.start_time = datetime.datetime.now()
         self.end_time = None
 
-        self._output = ""
-        self._status = ""
-        self._progress = (0.0, 1.0)
-        self._return_code = None
+        self.output = ""
+        self.status = ""
+        self.progress = (0.0, 0.0)
+        self.return_code = None
 
         self._on_change = []
 
@@ -164,6 +164,7 @@ class RunningScript:
         self._subprocess = await asyncio.create_subprocess_exec(
             str(self.script.executable),
             *self.args,
+            cwd=str(self.script.executable.parent),
             stdout=PIPE,
             stderr=PIPE,
             bufsize=0,
@@ -198,7 +199,7 @@ class RunningScript:
             while line_bytes := await stream.readline():
                 line = line_bytes.decode("utf-8")
 
-                self._output += line
+                self.output += line
 
                 # Find progress/status declarations
                 if match := SCRIPTIE_DECLARATION_RE.match(line):
@@ -206,14 +207,14 @@ class RunningScript:
                     if key == "progress":
                         numer, _, denom = value.strip().partition("/")
                         try:
-                            self._progress = (
+                            self.progress = (
                                 float(numer.strip()),
                                 float(denom.strip() or "1"),
                             )
                         except ValueError:
                             pass
                     elif key == "status":
-                        self._status = value.strip()
+                        self.status = value.strip()
 
                 self._report_change()
         finally:
@@ -231,14 +232,17 @@ class RunningScript:
 
                 # Ensure we wait for actual termination, not just closure of
                 # stdout/stderr
-                self._return_code = await self._subprocess.wait()
+                self.return_code = await self._subprocess.wait()
                 self.end_time = datetime.datetime.now()
 
                 self._report_change()
 
-    async def kill(self) -> None:
+    async def kill(self, terminate_timeout: float = 5.0) -> None:
         """
         Kill the script, waiting until all outputs are flushed.
+
+        Will initially send SIGTERM and if, after terminate_timeout seconds,
+        the command is still running will send SIGKILL.
         """
         await self._run_task
 
@@ -254,7 +258,15 @@ class RunningScript:
         #
         # Instead we kill the while process group we created for the script to
         # run in.
-        os.killpg(os.getpgid(self._subprocess.pid), signal.SIGKILL)
+        if self._subprocess.returncode is None:
+            os.killpg(os.getpgid(self._subprocess.pid), signal.SIGTERM)
+
+        # Give the script time to terminate gracefully
+        try:
+            await asyncio.wait_for(self._subprocess.wait(), terminate_timeout)
+        except asyncio.TimeoutError:
+            if self._subprocess.returncode is None:
+                os.killpg(os.getpgid(self._subprocess.pid), signal.SIGKILL)
 
         await self._stdout_task
         await self._stderr_task
@@ -265,7 +277,7 @@ class RunningScript:
         """
         while (
             # Not exited
-            self._return_code is None
+            self.return_code is None
             # Thing of interest has not changed
             and not check_changed()
         ):
@@ -284,13 +296,11 @@ class RunningScript:
         characters.
         """
         if after is None:
-            return self._output
+            return self.output
 
-        await self._wait_for_change_or_exit(
-            lambda: len(self._output) > cast(int, after)
-        )
+        await self._wait_for_change_or_exit(lambda: len(self.output) > cast(int, after))
 
-        return self._output[after:]
+        return self.output[after:]
 
     async def get_status(self, old_status: str | None = None) -> str:
         """
@@ -300,9 +310,9 @@ class RunningScript:
         If given an old status value, will block until a status different from
         this takes effect (or the script ends), returning the latest status.
         """
-        await self._wait_for_change_or_exit(lambda: self._status != old_status)
+        await self._wait_for_change_or_exit(lambda: self.status != old_status)
 
-        return self._status
+        return self.status
 
     async def get_progress(
         self, old_progres: tuple[float, float] | None = None
@@ -314,15 +324,15 @@ class RunningScript:
         If given an old progress value, will block until the progress changes
         (or the script ends), returning the latest status.
         """
-        await self._wait_for_change_or_exit(lambda: self._progress != old_progres)
+        await self._wait_for_change_or_exit(lambda: self.progress != old_progres)
 
-        return self._progress
+        return self.progress
 
     async def get_return_code(self) -> int:
         """
         Blocks until the process terminates, returning the return code.
         """
-        await self._wait_for_change_or_exit(lambda: self._return_code is not None)
+        await self._wait_for_change_or_exit(lambda: self.return_code is not None)
 
-        assert self._return_code is not None
-        return self._return_code
+        assert self.return_code is not None
+        return self.return_code
