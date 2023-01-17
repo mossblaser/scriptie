@@ -1,5 +1,111 @@
 """
 The scriptie API server.
+
+The following endpoints are defined
+
+GET /scripts/
+-------------
+
+Enumerates all available scripts and details about them.
+
+
+POST /scripts/{script_name}
+---------------------------
+
+Start executing this script.
+
+Arguments must be given with names arg0, arg1, and so on.
+
+File uploads will be saved to a temporary directory and a filename passed to
+the script insteaed. All other arguments are passed as is. There is no checking
+that the provided values correspond in any way with the arguments the script
+describes itself as accepting.
+
+The response contains the ID of the newly running script.
+
+
+GET /running/
+-------------
+
+Enumerate all currently running scripts along with all scripts which have
+finished executing within the last CLEANUP_DELAY seconds. Given in order of
+script start time.
+
+
+GET /running/{id}
+-----------------
+
+Show details of a given script execution (same as returned in /running/).
+
+
+DELETE /running/{id}
+--------------------
+
+Kill a running script (if running), delete any temporary files and remove all
+record of it from the server.
+
+
+GET /running/{id}/output?from={byte_offset}
+-------------------------------------------
+
+Returns the current (interleaved) stdout/stderr contents.
+
+If 'from' is not given, immediately returns whatever output has been received
+so far.
+
+If 'from' param is given and is a byte offset into the output stream, blocks
+until output beyond the given byte offset has been emitted and returns that.
+Alternatively, if the script exits, returns empty.
+
+
+GET /running/{id}/progress?since={progress}
+-------------------------------------------
+
+Returns the current progress reported by the script as a JSON [numer, denom]
+pair. Note that if no progress information has been output by the script, [0,
+0] is returned.
+
+If 'since' is not given, immediately returns whatever the current progress is.
+
+If 'since' param is given and is a JSON progress tuple, blocks until either
+further progress is reported or the script exits, then returns a progress
+tuple.
+
+
+GET /running/{id}/status?since={progress}
+-----------------------------------------
+
+Returns the current status reported by the script as free text. Note that if no
+statusinformation has been output by the script an empty response is returned.
+
+If 'since' is not given, immediately returns whatever the current status is.
+
+If 'since' param is given and is a previous status value, blocks until either
+further status is reported or the script exits, then returns the status.
+
+
+GET /running/{id}/return_code
+-----------------------------
+
+Blocks until the script exits or is killed, then produces the return code left
+by the script.
+
+
+GET /running/{id}/end_time
+--------------------------
+
+Blocks until the script exits or is killed, then produces the time at which the
+script exited.
+
+
+POST /running/{id}/kill
+-----------------------
+
+Kills the script (if it is running).
+
+By contrast with DELETE /running/{id}, information about the execution
+(including output) is not removed until CLEANUP_DELAY seconds have ellapsed.
+
 """
 
 import asyncio
@@ -295,6 +401,7 @@ def make_app(script_dir: Path) -> web.Application:
     app["temporary_dirs"] = {}  # List of TemporaryDirectory per running script
     app["cleanup_tasks"] = []
 
+    @app.on_cleanup.append
     async def cleanup(app: web.Application) -> None:
         # Make sure all scripts have exited by now
         for rs in cast(dict[str, RunningScript], app["running_scripts"]).values():
@@ -306,8 +413,6 @@ def make_app(script_dir: Path) -> web.Application:
                 await task
             except asyncio.CancelledError:
                 pass
-
-    app.on_cleanup.append(cleanup)
 
     return app
 
