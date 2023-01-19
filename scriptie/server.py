@@ -162,6 +162,32 @@ async def get_scripts(request: web.Request) -> web.Response:
     )
 
 
+@routes.get("/scripts/{script}")
+async def get_script(request: web.Request) -> web.Response:
+    script_dir: Path = request.app["script_dir"]
+    scripts = {
+        script.executable.name: script for script in enumerate_scripts(script_dir)
+    }
+    script = scripts.get(request.match_info["script"])
+    if script is None:
+        raise web.HTTPNotFound()
+
+    return web.json_response(
+        {
+            "script": script.executable.name,
+            "name": script.name,
+            "description": script.description,
+            "args": [
+                {
+                    "description": arg.description,
+                    "type": arg.type,
+                }
+                for arg in script.args
+            ],
+        }
+    )
+
+
 @routes.post("/scripts/{script}")
 async def run_script(request: web.Request) -> web.Response:
     script_dir: Path = request.app["script_dir"]

@@ -58,6 +58,20 @@ async def test_script_enumeration(server: ClientSession, script_dir: Path) -> No
             ],
         }
     ]
+    
+    resp = await server.get("/scripts/foo.sh")
+    script = await resp.json()
+
+    assert script == {
+        "script": "foo.sh",
+        "name": "Foo script",
+        "description": "A quick script",
+        "args": [
+            {"type": "first", "description": "First argument"},
+            {"type": "second", "description": "Second argument"},
+        ],
+    }
+
 
 
 @pytest.fixture
