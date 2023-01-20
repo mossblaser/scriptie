@@ -193,6 +193,30 @@ async def test_run_script_with_file(
     assert Path(args[1]).read_text() == "Hello, world!"
 
 
+async def test_run_script_with_absent_file(
+    server: ClientSession,
+    print_args_sh: None,
+    tmp_path: Path,
+) -> None:
+    with MultipartWriter("form-data") as mpwriter:
+        part = mpwriter.append(b"")
+        part.set_content_disposition(
+            "attachment",
+            name="arg0",
+            filename="",
+        )
+
+    resp = await server.post("/scripts/print_args.sh", data=mpwriter)
+
+    assert resp.status == 200
+    rs_id = await resp.text()
+
+    # Wait for script to complete
+    await server.get(f"/running/{rs_id}/return_code")
+
+    assert (await (await server.get(f"/running/{rs_id}/output")).text()) == "\n"
+
+
 @pytest.mark.parametrize(
     "args",
     [

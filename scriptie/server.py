@@ -218,14 +218,19 @@ async def run_script(request: web.Request) -> web.Response:
                 args_by_name[part.name] = await part.text()
             else:
                 # Convert uploaded files into a filename for said argument
-                temp_dir = TemporaryDirectory(
-                    prefix=f"{script.executable.name}_",
-                    ignore_cleanup_errors=True,
-                )
-                temp_dirs.append(temp_dir)
-                arg_file = Path(temp_dir.name) / (part.filename or "no_name")
-                arg_file.write_bytes(await part.read())
-                args_by_name[part.name] = str(arg_file)
+                file_contents = await part.read()
+                if file_contents == b"" and not part.filename:
+                    # Special case: No file selected
+                    args_by_name[part.name] = ""
+                else:
+                    temp_dir = TemporaryDirectory(
+                        prefix=f"{script.executable.name}_",
+                        ignore_cleanup_errors=True,
+                    )
+                    temp_dirs.append(temp_dir)
+                    arg_file = Path(temp_dir.name) / (part.filename or "no_name")
+                    arg_file.write_bytes(file_contents)
+                    args_by_name[part.name] = str(arg_file)
     else:
         # Assume no arguments
         pass
