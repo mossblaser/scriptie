@@ -87,7 +87,9 @@ def enumerate_scripts(script_dir: Path) -> Iterable[Script]:
       of the script.
     * ``## arg: <type> <description>`` Defines the purpose of an argument to
       the script. The description is optional. Repeated declarations define
-      subsequent arguments.
+      subsequent arguments. This value is considered entirely informational and
+      :py:class:`RunningScript` and the server will not enforce argument types
+      or counts.
     """
     for file in script_dir.iterdir():
         if file.is_file() and os.access(file, mode=os.X_OK):
