@@ -337,6 +337,7 @@ async def test_enumerate_running(
         {
             "id": minimal_rs_id,
             "script": "minimal.sh",
+            "name": "minimal",
             "args": [],
             "end_time": None,
             "progress": [0.0, 0.0],
@@ -346,6 +347,7 @@ async def test_enumerate_running(
         {
             "id": full_featured_rs_id,
             "script": "full_featured.sh",
+            "name": "full_featured",
             "args": ["first", "second"],
             "end_time": None,
             "progress": [0.0, 0.0],
@@ -383,6 +385,7 @@ async def test_enumerate_running(
         {
             "id": minimal_rs_id,
             "script": "minimal.sh",
+            "name": "minimal",
             "args": [],
             "progress": [0.0, 0.0],
             "status": "",
@@ -391,6 +394,7 @@ async def test_enumerate_running(
         {
             "id": full_featured_rs_id,
             "script": "full_featured.sh",
+            "name": "full_featured",
             "args": ["first", "second"],
             "progress": [100.0, 100.0],
             "status": "finished",

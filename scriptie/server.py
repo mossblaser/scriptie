@@ -277,6 +277,7 @@ async def get_running(request: web.Request) -> web.Response:
             {
                 "id": rs_id,
                 "script": rs.script.executable.name,
+                "name": rs.script.name,
                 "args": rs.args,
                 "start_time": rs.start_time.isoformat(),
                 "end_time": rs.end_time.isoformat()
@@ -303,6 +304,7 @@ async def get_running_script(request: web.Request) -> web.Response:
         {
             "id": rs_id,
             "script": rs.script.executable.name,
+            "name": rs.script.name,
             "args": rs.args,
             "start_time": rs.start_time.isoformat(),
             "end_time": rs.end_time.isoformat() if rs.end_time is not None else None,
