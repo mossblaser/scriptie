@@ -45,57 +45,10 @@ Kill a running script (if running), delete any temporary files and remove all
 record of it from the server.
 
 
-GET /running/{id}/output?from={byte_offset}
--------------------------------------------
+GET /running/{id}/output
+------------------------
 
 Returns the current (interleaved) stdout/stderr contents.
-
-If 'from' is not given, immediately returns whatever output has been received
-so far.
-
-If 'from' param is given and is a byte offset into the output stream, blocks
-until output beyond the given byte offset has been emitted and returns that.
-Alternatively, if the script exits, returns empty.
-
-
-GET /running/{id}/progress?since={progress}
--------------------------------------------
-
-Returns the current progress reported by the script as a JSON [numer, denom]
-pair. Note that if no progress information has been output by the script, [0,
-0] is returned.
-
-If 'since' is not given, immediately returns whatever the current progress is.
-
-If 'since' param is given and is a JSON progress tuple, blocks until either
-further progress is reported or the script exits, then returns a progress
-tuple.
-
-
-GET /running/{id}/status?since={progress}
------------------------------------------
-
-Returns the current status reported by the script as free text. Note that if no
-statusinformation has been output by the script an empty response is returned.
-
-If 'since' is not given, immediately returns whatever the current status is.
-
-If 'since' param is given and is a previous status value, blocks until either
-further status is reported or the script exits, then returns the status.
-
-
-GET /running/{id}/return_code
------------------------------
-
-Blocks until the script exits or is killed, then produces the return code left
-by the script.
-
-
-GET /running/{id}/end_time
---------------------------
-
-Blocks until the script exits or is killed, then produces the time at which the
-script exited.
 
 
 POST /running/{id}/kill
@@ -106,19 +59,58 @@ Kills the script (if it is running).
 By contrast with DELETE /running/{id}, information about the execution
 (including output) is not removed until CLEANUP_DELAY seconds have ellapsed.
 
+
+GET /running/ws (websocket)
+---------------------------
+
+A websocket which can be used to monitor status changes in running scripts.
+
+The websocket expects to be sent JSON objects of the shape:
+
+    {"id": "unique ID here", "type": "name here", other args here}
+
+The server will, in due course and in any order, respond with JSON objects of
+the form:
+
+    {"id": "matching unique ID here", "value": "..."}
+    ...or...
+    {"id": "matching unique ID here", "error": "..."}
+
+Alternatively, the client can send the following JSON to cancel a no longer
+needed request
+
+    {"id": "matching unique ID here"}
+
+This does not guarantee a response will be returned anyway, however, due to the
+obvious race condition.
+
+The following commands are available:
+
+    get_output(rs_id: str, after: int) -> str
+    get_status(rs_id: str, old_status: str) -> str
+    get_progress(rs_id: str, old_progres: tuple[float, float]) -> tuple[float, float]
+    get_return_code(rs_id: str) -> int
+    get_end_time(rs_id: str) -> str
+
+Behaving as the simillarly named methods of
+:py:class:`scriptie.scripts.RunningScript` do.
 """
 
 import asyncio
 
 from typing import cast
 
-from aiohttp import web, BodyPartReader
+from aiohttp import web, BodyPartReader, WSMsgType
 
 from pathlib import Path
 
 import json
 
 import uuid
+
+import traceback
+
+import datetime
 
 from tempfile import TemporaryDirectory
 
@@ -292,6 +284,64 @@ async def get_running(request: web.Request) -> web.Response:
     )
 
 
+@routes.get("/running/ws")
+async def get_running_websocket(request: web.Request) -> web.WebSocketResponse:
+    running_scripts: dict[str, RunningScript] = request.app["running_scripts"]
+
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+    
+    tasks: dict[str, asyncio.Task] = {}
+    
+    try:
+        async for msg in ws:
+            if msg.type != WSMsgType.TEXT:
+                raise ValueError(f"Unexpected message type: {msg.type}")
+            match msg.json():
+                case {
+                    "id": command_id,
+                    "type": command_type,
+                    "rs_id": rs_id,
+                    **command_args,
+                }:
+                    if rs_id not in running_scripts:
+                        await ws.send_json({"id": command_id, "error": "Unknown running script ID"})
+                    else:
+                        rs = running_scripts[rs_id]
+                        if not hasattr(rs, command_type) or command_type.startswith("_"):
+                            await ws.send_json({"id": command_id, "error": "Unknown command type"})
+                        else:
+                            async def run_command():
+                                try:
+                                    value = await getattr(rs, command_type)(**command_args)
+                                    # XXX: Special case for get_end_time (yuck!)
+                                    if isinstance(value, datetime.datetime):
+                                        value = value.isoformat()
+                                    await ws.send_json({"id": command_id, "value": value})
+                                except asyncio.CancelledError:
+                                    pass
+                                except Exception as exc:
+                                    await ws.send_json({"id": command_id, "error": str(exc)})
+                                finally:
+                                    tasks.pop(command_id, None)
+                            
+                            asyncio.create_task(run_command())
+                case {"id": command_id}:
+                    if task := tasks.pop(command_id, None):
+                        task.cancel()
+                case other:
+                    raise Exception("Unsupported request", other)
+    except asyncio.CancelledError:
+        pass
+    except Exception as exc:
+        traceback.print_exc()
+    finally:
+        while tasks:
+            tasks.popitem()[1].cancel()
+
+    return ws
+
+
 @routes.get("/running/{id}")
 async def get_running_script(request: web.Request) -> web.Response:
     running_scripts: dict[str, RunningScript] = request.app["running_scripts"]
@@ -341,76 +391,7 @@ async def get_output(request: web.Request) -> web.Response:
     if rs is None:
         raise web.HTTPNotFound()
 
-    if "from" not in request.query:
-        return web.Response(text=rs.output)
-
-    try:
-        from_offset = int(request.query["from"])
-    except ValueError:
-        raise web.HTTPBadRequest(text="from must be an integer")
-
-    return web.Response(text=await rs.get_output(from_offset))
-
-
-@routes.get("/running/{id}/progress")
-async def get_progress(request: web.Request) -> web.Response:
-    running_scripts: dict[str, RunningScript] = request.app["running_scripts"]
-    rs: RunningScript | None = running_scripts.get(request.match_info["id"])
-    if rs is None:
-        raise web.HTTPNotFound()
-
-    if "since" not in request.query:
-        return web.json_response(rs.progress)
-
-    try:
-        since = json.loads(request.query["since"])
-    except json.JSONDecodeError:
-        raise web.HTTPBadRequest(text="since must be valid JSON")
-    if not (
-        isinstance(since, list)
-        and len(since) == 2
-        and isinstance(since[0], (int, float))
-        and isinstance(since[1], (int, float))
-    ):
-        raise web.HTTPBadRequest(text="since must be a [float, float] array")
-
-    return web.json_response(await rs.get_progress((float(since[0]), float(since[1]))))
-
-
-@routes.get("/running/{id}/status")
-async def get_status(request: web.Request) -> web.Response:
-    running_scripts: dict[str, RunningScript] = request.app["running_scripts"]
-    rs: RunningScript | None = running_scripts.get(request.match_info["id"])
-    if rs is None:
-        raise web.HTTPNotFound()
-
-    if "since" not in request.query:
-        return web.Response(text=rs.status)
-    else:
-        return web.Response(text=await rs.get_status(request.query["since"]))
-
-
-@routes.get("/running/{id}/return_code")
-async def get_return_code(request: web.Request) -> web.Response:
-    running_scripts: dict[str, RunningScript] = request.app["running_scripts"]
-    rs: RunningScript | None = running_scripts.get(request.match_info["id"])
-    if rs is None:
-        raise web.HTTPNotFound()
-
-    return web.Response(text=str(await rs.get_return_code()))
-
-
-@routes.get("/running/{id}/end_time")
-async def get_end_time(request: web.Request) -> web.Response:
-    running_scripts: dict[str, RunningScript] = request.app["running_scripts"]
-    rs: RunningScript | None = running_scripts.get(request.match_info["id"])
-    if rs is None:
-        raise web.HTTPNotFound()
-
-    await rs.get_return_code()
-    assert rs.end_time is not None
-
-    return web.Response(text=rs.end_time.isoformat())
+    return web.Response(text=rs.output)
 
 
 @routes.post("/running/{id}/kill")

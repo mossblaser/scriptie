@@ -1,16 +1,20 @@
 import pytest
 
 from typing import Any
-from collections.abc import Callable, Awaitable
+from collections.abc import Callable, Awaitable, AsyncIterable
 
 import asyncio
 
 from pathlib import Path
 
+import aiohttp
 from aiohttp import web, ClientSession, MultipartWriter
+
 from multidict import MultiDict
 
 import datetime
+
+import uuid
 
 from textwrap import dedent
 
@@ -30,6 +34,81 @@ async def server(
     script_dir: Path,
 ) -> ClientSession:
     return await aiohttp_client(make_app(script_dir))
+
+
+class RunningWSCommandError(Exception):
+    pass
+
+
+class RunningWSClient:
+    """
+    A websocket client for the /running/ws endpoint.
+    
+    Call (coroutine) methods on this object to send equivalent calls to the far
+    end.
+    """
+    
+    _client: ClientSession
+    _ws: aiohttp.ClientWebSocketResponse
+    
+    _waiting_commands: dict[str, asyncio.Future]
+    
+    _rx_task: asyncio.Task
+    
+    def __init__(self, client: ClientSession) -> None:
+        self._client = client
+        self._waiting_commands = {}
+    
+    async def _open(self) -> None:
+        self._ws = await self._client.ws_connect("/running/ws")
+        self._rx_task = asyncio.create_task(self._rx_loop())
+    
+    async def _close(self) -> None:
+        self._rx_task.cancel()
+        try:
+            await self._rx_task
+        except asyncio.CancelledError:
+            pass
+        except:
+            raise
+
+    async def _rx_loop(self) -> None:
+        try:
+            async for msg in self._ws:
+                assert msg.type == aiohttp.WSMsgType.TEXT
+                response = msg.json()
+                future = self._waiting_commands.pop(response["id"])
+                if not future.cancelled():
+                    if "value" in response:
+                        future.set_result(response["value"])
+                    else:
+                        future.set_exception(RunningWSCommandError(response.get("error", "Missing 'error' or 'value'")))
+        except Exception as e:
+            while self._waiting_commands:
+                self._waiting_commands.popitem()[1].set_exception(e)
+            raise
+    
+    def __getattr__(self, command_type: str) -> Callable[..., Any]:
+        async def cmd(**args) -> Any:
+            command_id = str(uuid.uuid4())
+            future = self._waiting_commands[command_id] = asyncio.Future()
+            await self._ws.send_json(dict(args, id=command_id, type=command_type))
+            try:
+                return await future
+            except asyncio.CancelledError:
+                await self._ws.send_json({"id": command_id})
+                raise
+        return cmd
+
+
+@pytest.fixture
+async def running_ws_client(server: ClientSession) -> AsyncIterable[RunningWSClient]:
+    client = RunningWSClient(server)
+    await client._open()
+    try:
+        yield client
+    finally:
+        await client._close()
 
 
 async def test_script_enumeration(server: ClientSession, script_dir: Path) -> None:
@@ -105,13 +184,17 @@ def multipart_append_form_field(
     part.set_content_disposition("form-data", name=name)
 
 
-async def test_run_script_no_args(server: ClientSession, print_args_sh: None) -> None:
+async def test_run_script_no_args(
+    server: ClientSession,
+    running_ws_client: RunningWSClient,
+    print_args_sh: None,
+) -> None:
     resp = await server.post("/scripts/print_args.sh")
     assert resp.status == 200
     rs_id = await resp.text()
 
     # Wait for script to complete
-    await server.get(f"/running/{rs_id}/return_code")
+    await running_ws_client.get_return_code(rs_id=rs_id)
 
     # Get passed arguments
     args = await (await server.get(f"/running/{rs_id}/output")).text()
@@ -121,6 +204,7 @@ async def test_run_script_no_args(server: ClientSession, print_args_sh: None) ->
 @pytest.mark.parametrize("multipart", [False, True])
 async def test_run_script_simple_args(
     server: ClientSession,
+    running_ws_client: RunningWSClient,
     print_args_sh: None,
     multipart: bool,
 ) -> None:
@@ -142,7 +226,7 @@ async def test_run_script_simple_args(
     rs_id = await resp.text()
 
     # Wait for script to complete
-    await server.get(f"/running/{rs_id}/return_code")
+    await running_ws_client.get_return_code(rs_id=rs_id)
 
     # Get passed arguments
     args = await (await server.get(f"/running/{rs_id}/output")).text()
@@ -154,6 +238,7 @@ async def test_run_script_simple_args(
 
 async def test_run_script_with_file(
     server: ClientSession,
+    running_ws_client: RunningWSClient,
     print_args_sh: None,
     tmp_path: Path,
 ) -> None:
@@ -176,7 +261,7 @@ async def test_run_script_with_file(
     rs_id = await resp.text()
 
     # Wait for script to complete
-    await server.get(f"/running/{rs_id}/return_code")
+    await running_ws_client.get_return_code(rs_id=rs_id)
 
     # Get passed arguments
     args = (
@@ -195,6 +280,7 @@ async def test_run_script_with_file(
 
 async def test_run_script_with_absent_file(
     server: ClientSession,
+    running_ws_client: RunningWSClient,
     print_args_sh: None,
     tmp_path: Path,
 ) -> None:
@@ -212,7 +298,7 @@ async def test_run_script_with_absent_file(
     rs_id = await resp.text()
 
     # Wait for script to complete
-    await server.get(f"/running/{rs_id}/return_code")
+    await running_ws_client.get_return_code(rs_id=rs_id)
 
     assert (await (await server.get(f"/running/{rs_id}/output")).text()) == "\n"
 
@@ -240,6 +326,7 @@ async def test_run_script_bad_arg_names(
 
 async def test_run_script_cleanup(
     server: ClientSession,
+    running_ws_client: RunningWSClient,
     print_args_sh: None,
     tmp_path: Path,
     monkeypatch: Any,
@@ -264,7 +351,7 @@ async def test_run_script_cleanup(
     rs_id = await resp.text()
 
     # Wait for exit
-    await server.get(f"/running/{rs_id}/return_code")
+    await running_ws_client.get_return_code(rs_id=rs_id)
 
     # Check temporary file still exists
     f = Path((await (await server.get(f"/running/{rs_id}/output")).text()).rstrip())
@@ -274,8 +361,8 @@ async def test_run_script_cleanup(
     await asyncio.sleep(0.1)
 
     # Should be gone from history
-    resp = await server.get(f"/running/{rs_id}/return_code")
-    assert resp.status == 404
+    with pytest.raises(RunningWSCommandError):
+        await running_ws_client.get_return_code(rs_id=rs_id)
 
     # Temporary file should also be gone
     assert not f.is_file()
@@ -286,6 +373,7 @@ async def test_run_script_cleanup(
 
 async def test_enumerate_running(
     server: ClientSession,
+    running_ws_client: RunningWSClient,
     make_script: Callable[[str, str], None],
 ) -> None:
     make_script(
@@ -357,13 +445,8 @@ async def test_enumerate_running(
     ]
 
     # Check on exit
-    assert (
-        await (await server.get(f"/running/{minimal_rs_id}/return_code")).text() == "0"
-    )
-    assert (
-        await (await server.get(f"/running/{full_featured_rs_id}/return_code")).text()
-        == "123"
-    )
+    assert await running_ws_client.get_return_code(rs_id=minimal_rs_id) == 0
+    assert await running_ws_client.get_return_code(rs_id=full_featured_rs_id) == 123
 
     running = await (await server.get("/running/")).json()
     assert len(running) == 2
@@ -405,6 +488,7 @@ async def test_enumerate_running(
 
 async def test_delete_script(
     server: ClientSession,
+    running_ws_client: RunningWSClient,
     make_script: Callable[[str, str], None],
     tmp_path: Path,
 ) -> None:
@@ -452,7 +536,7 @@ async def test_delete_script(
     ]
 
     # Wait for quick script to exit
-    assert await (await server.get(f"/running/{exit_rs_id}/return_code")).text() == "0"
+    assert await running_ws_client.get_return_code(rs_id=exit_rs_id) == 0
 
     # Delete both scripts
     for rs_id in rs_ids:
@@ -467,151 +551,9 @@ async def test_delete_script(
         assert not file.is_file()
 
 
-async def test_output(
-    server: ClientSession,
-    make_script: Callable[[str, str], None],
-) -> None:
-    make_script(
-        "test.sh",
-        """
-        #!/bin/sh
-        echo One
-        sleep 0.1
-        echo Two
-        """,
-    )
-
-    resp = await server.post("/scripts/test.sh")
-    assert resp.status == 200
-    rs_id = await resp.text()
-
-    # Get some output
-    resp = await server.get(f"/running/{rs_id}/output", params={"from": "0"})
-    assert await resp.text() == "One\n"
-
-    # Get all available shouldn't block
-    resp = await server.get(f"/running/{rs_id}/output")
-    assert await resp.text() == "One\n"
-
-    # Get more output, should block
-    resp = await server.get(f"/running/{rs_id}/output", params={"from": "4"})
-    assert await resp.text() == "Two\n"
-
-
-async def test_progress(
-    server: ClientSession,
-    make_script: Callable[[str, str], None],
-) -> None:
-    make_script(
-        "test.sh",
-        """
-        #!/bin/sh
-        echo '## progress: 1/2'
-        sleep 0.1
-        echo '## progress: 2/2'
-        """,
-    )
-
-    resp = await server.post("/scripts/test.sh")
-    assert resp.status == 200
-    rs_id = await resp.text()
-
-    # Get initial progress, blocking until change
-    resp = await server.get(f"/running/{rs_id}/progress", params={"since": "[0,0]"})
-    assert await resp.json() == [1.0, 2.0]
-
-    # Get current shouldn't block
-    resp = await server.get(f"/running/{rs_id}/progress")
-    assert await resp.json() == [1.0, 2.0]
-
-    # Get new progress, should block
-    resp = await server.get(f"/running/{rs_id}/progress", params={"since": "[1,2]"})
-    assert await resp.json() == [2.0, 2.0]
-
-
-async def test_status(
-    server: ClientSession,
-    make_script: Callable[[str, str], None],
-) -> None:
-    make_script(
-        "test.sh",
-        """
-        #!/bin/sh
-        echo '## status: foo'
-        sleep 0.1
-        echo '## status: bar'
-        """,
-    )
-
-    resp = await server.post("/scripts/test.sh")
-    assert resp.status == 200
-    rs_id = await resp.text()
-
-    # Get initial status, blocking until change
-    resp = await server.get(f"/running/{rs_id}/status", params={"since": ""})
-    assert await resp.text() == "foo"
-
-    # Get current shouldn't block
-    resp = await server.get(f"/running/{rs_id}/status")
-    assert await resp.text() == "foo"
-
-    # Get new status, should block
-    resp = await server.get(f"/running/{rs_id}/status", params={"since": "foo"})
-    assert await resp.text() == "bar"
-
-
-async def test_return_code(
-    server: ClientSession,
-    make_script: Callable[[str, str], None],
-) -> None:
-    make_script(
-        "test.sh",
-        """
-        #!/bin/sh
-        sleep 0.1
-        exit 123
-        """,
-    )
-
-    resp = await server.post("/scripts/test.sh")
-    assert resp.status == 200
-    rs_id = await resp.text()
-
-    resp = await server.get(f"/running/{rs_id}/return_code")
-    assert await resp.text() == "123"
-
-    resp = await server.get(f"/running/{rs_id}/return_code")
-    assert await resp.text() == "123"
-
-
-async def test_start_and_end_time(
-    server: ClientSession,
-    make_script: Callable[[str, str], None],
-) -> None:
-    make_script(
-        "test.sh",
-        """
-        #!/bin/sh
-        sleep 0.1
-        """,
-    )
-
-    resp = await server.post("/scripts/test.sh")
-    assert resp.status == 200
-    rs_id = await resp.text()
-
-    start_time = datetime.datetime.fromisoformat(
-        (await (await server.get(f"/running/{rs_id}")).json())["start_time"]
-    )
-    end_time = datetime.datetime.fromisoformat(
-        await (await server.get(f"/running/{rs_id}/end_time")).text()
-    )
-
-    assert (end_time - start_time).total_seconds() == pytest.approx(0.1, abs=0.03)
-
-
 async def test_kill(
     server: ClientSession,
+    running_ws_client: RunningWSClient,
     make_script: Callable[[str, str], None],
 ) -> None:
     make_script(
@@ -628,19 +570,72 @@ async def test_kill(
     assert resp.status == 200
     rs_id = await resp.text()
 
-    resp = await server.get(f"/running/{rs_id}/output", params={"from": "0"})
-    assert resp.status == 200
-    assert await resp.text() == "You should see this...\n"
+    assert (
+        await running_ws_client.get_output(rs_id=rs_id, after=0) ==
+        "You should see this...\n"
+    )
 
     resp = await server.post(f"/running/{rs_id}/kill")
     assert resp.status == 200
 
     # Wait until definitely exited
-    resp = await server.get(f"/running/{rs_id}/return_code")
-    assert resp.status == 200
-    assert int(await resp.text()) < 0
+    assert await running_ws_client.get_return_code(rs_id=rs_id) < 0
 
     # Should have actually stopped during sleep
     resp = await server.get(f"/running/{rs_id}/output")
     assert resp.status == 200
     assert await resp.text() == "You should see this...\n"
+
+
+async def test_running_ws(
+    server: ClientSession,
+    running_ws_client: RunningWSClient,
+    make_script: Callable[[str, str], None],
+) -> None:
+    make_script(
+        "sleep.sh",
+        """
+        #!/bin/sh
+        echo "Going to sleep..."
+        sleep 1000
+        """,
+    )
+
+    resp = await server.post("/scripts/sleep.sh")
+    assert resp.status == 200
+    rs_id = await resp.text()
+
+    # Should block for valid commands
+    assert (
+        await running_ws_client.get_output(rs_id=rs_id, after=0)
+        == "Going to sleep...\n"
+    )
+    
+    # Should pass back failures on command errors
+    with pytest.raises(RunningWSCommandError):
+        await running_ws_client.get_output(rs_id=rs_id, after="not valid at all")
+    
+    # Should pass back failure on non-existant command
+    with pytest.raises(RunningWSCommandError):
+        await running_ws_client.get_foobar(rs_id=rs_id)
+    
+    # Should pass back failure on bad RunningScript ID
+    with pytest.raises(RunningWSCommandError):
+        await running_ws_client.get_output(rs_id="bad", after=0)
+    
+    # Should support cancellation
+    # TODO: Check if cancellation actually occurred rather than just checking
+    # it didn't crash...
+    task = asyncio.create_task(
+        running_ws_client.get_output(rs_id=rs_id, after=len("Going to sleep...\n"))
+    )
+    await asyncio.sleep(0.1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    
+    # Check end time is in JSON-friendly type
+    assert (await server.post(f"/running/{rs_id}/kill")).status == 200
+    end_time_text = await running_ws_client.get_end_time(rs_id=rs_id)
+    end_time = datetime.datetime.fromisoformat(end_time_text)
+    assert (datetime.datetime.now() - end_time).total_seconds() == pytest.approx(0.0, abs=0.05)

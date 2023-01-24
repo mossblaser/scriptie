@@ -152,6 +152,12 @@ class TestRunningScript:
         after = time.monotonic()
         assert after - before > 0.1
 
+    async def test_get_end_time(self, make_script: Callable[[str], Script]) -> None:
+        rs = RunningScript(make_script("sleep 0.1"))
+        assert (
+            await rs.get_end_time() - rs.start_time
+        ).total_seconds() == pytest.approx(0.1, abs=0.05)
+
     async def test_output(self, make_script: Callable[[str], Script]) -> None:
         rs = RunningScript(
             make_script(

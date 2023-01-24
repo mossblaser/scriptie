@@ -338,3 +338,11 @@ class RunningScript:
 
         assert self.return_code is not None
         return self.return_code
+
+    async def get_end_time(self) -> datetime.datetime:
+        """
+        Blocks until the process terminates, returning the end time code.
+        """
+        await self.get_return_code()
+        assert self.end_time is not None
+        return self.end_time
