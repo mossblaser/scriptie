@@ -311,7 +311,7 @@ async def get_running_websocket(request: web.Request) -> web.WebSocketResponse:
                         if not hasattr(rs, command_type) or command_type.startswith("_"):
                             await ws.send_json({"id": command_id, "error": "Unknown command type"})
                         else:
-                            async def run_command():
+                            async def run_command(command_id, rs, command_type, command_args):
                                 try:
                                     value = await getattr(rs, command_type)(**command_args)
                                     # XXX: Special case for get_end_time (yuck!)
@@ -320,12 +320,21 @@ async def get_running_websocket(request: web.Request) -> web.WebSocketResponse:
                                     await ws.send_json({"id": command_id, "value": value})
                                 except asyncio.CancelledError:
                                     pass
+                                except ConnectionResetError:
+                                    pass
                                 except Exception as exc:
                                     await ws.send_json({"id": command_id, "error": str(exc)})
                                 finally:
                                     tasks.pop(command_id, None)
                             
-                            asyncio.create_task(run_command())
+                            tasks[command_id] = asyncio.create_task(
+                                run_command(
+                                    command_id,
+                                    rs,
+                                    command_type,
+                                    command_args,
+                                )
+                            )
                 case {"id": command_id}:
                     if task := tasks.pop(command_id, None):
                         task.cancel()

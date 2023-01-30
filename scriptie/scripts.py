@@ -317,7 +317,7 @@ class RunningScript:
         return self.status
 
     async def get_progress(
-        self, old_progres: tuple[float, float] | None = None
+        self, old_progress: list[float] | tuple[float, float] | None = None
     ) -> tuple[float, float]:
         """
         If called with no arguments, will immediately return the current
@@ -326,7 +326,11 @@ class RunningScript:
         If given an old progress value, will block until the progress changes
         (or the script ends), returning the latest status.
         """
-        await self._wait_for_change_or_exit(lambda: self.progress != old_progres)
+        # Yuck: Better support JSON-encoded RPCs to this method
+        if isinstance(old_progress, list):
+            assert len(old_progress) == 2
+            old_progress = cast(tuple[float, float], tuple(old_progress))
+        await self._wait_for_change_or_exit(lambda: self.progress != old_progress)
 
         return self.progress
 
