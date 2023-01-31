@@ -189,9 +189,19 @@ async def test_run_script_no_args(
     running_ws_client: RunningWSClient,
     print_args_sh: None,
 ) -> None:
+    # Make sure the newly started task causes wait_for_running_change to fire
+    wait_for_running_change_task = asyncio.create_task(
+        running_ws_client.wait_for_running_change(old_rs_ids=[])
+    )
+    
     resp = await server.post("/scripts/print_args.sh")
     assert resp.status == 200
     rs_id = await resp.text()
+
+    # Change should have been reported
+    new_running = await wait_for_running_change_task
+    assert len(new_running) == 1
+    assert new_running[0]["id"] == rs_id
 
     # Wait for script to complete
     await running_ws_client.get_return_code(rs_id=rs_id)
@@ -333,7 +343,7 @@ async def test_run_script_cleanup(
 ) -> None:
     import scriptie.server as server_module
 
-    monkeypatch.setattr(server_module, "CLEANUP_DELAY", 0.1)
+    monkeypatch.setattr(server_module, "CLEANUP_DELAY", 0.2)
 
     # Send a file
     file_to_send = tmp_path / "to_send.txt"
@@ -352,10 +362,21 @@ async def test_run_script_cleanup(
 
     # Wait for exit
     await running_ws_client.get_return_code(rs_id=rs_id)
+    
+    # Make sure the running list still includes the old script
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(
+            running_ws_client.wait_for_running_change(old_rs_ids=[rs_id]),
+            timeout=0.1,
+        )
 
     # Check temporary file still exists
     f = Path((await (await server.get(f"/running/{rs_id}/output")).text()).rstrip())
     assert f.is_file()
+
+    wait_for_running_change_task = asyncio.create_task(
+        running_ws_client.wait_for_running_change(old_rs_ids=[rs_id])
+    )
 
     # Wait for timeout
     await asyncio.sleep(0.1)
@@ -363,6 +384,9 @@ async def test_run_script_cleanup(
     # Should be gone from history
     with pytest.raises(RunningWSCommandError):
         await running_ws_client.get_return_code(rs_id=rs_id)
+    
+    # Make sure wait_for_running_change unblocks
+    assert await wait_for_running_change_task == []
 
     # Temporary file should also be gone
     assert not f.is_file()
@@ -538,10 +562,20 @@ async def test_delete_script(
     # Wait for quick script to exit
     assert await running_ws_client.get_return_code(rs_id=exit_rs_id) == 0
 
-    # Delete both scripts
-    for rs_id in rs_ids:
-        resp = await server.delete(f"/running/{rs_id}")
-        assert resp.status == 200
+    # Delete both scripts, checking wait_for_running_change unblocks
+    wait_for_running_change_task = asyncio.create_task(
+        running_ws_client.wait_for_running_change(old_rs_ids=[exit_rs_id, sleep_rs_id])
+    )
+    resp = await server.delete(f"/running/{exit_rs_id}")
+    assert resp.status == 200
+    assert len(await wait_for_running_change_task) == 1
+    
+    wait_for_running_change_task = asyncio.create_task(
+        running_ws_client.wait_for_running_change(old_rs_ids=[sleep_rs_id])
+    )
+    resp = await server.delete(f"/running/{sleep_rs_id}")
+    assert resp.status == 200
+    assert await wait_for_running_change_task == []
 
     # Make sure both no longer listed
     assert await (await server.get("/running/")).json() == []

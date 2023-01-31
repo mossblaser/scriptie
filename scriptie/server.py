@@ -94,11 +94,21 @@ The following commands are available:
 
 Behaving as the simillarly named methods of
 :py:class:`scriptie.scripts.RunningScript` do.
+
+In addition, the following command is available:
+
+    wait_for_running_change(old_rs_ids: str) -> new /running output
+
+This command will block until the output of /running contains a different set
+of old_rs_ids (i.e. a run has started, been deleted or expired). It returns a
+new copy of the data which would be returned by the /running endpoint. Note
+that this does *not* return when an existing running script changes.
+
 """
 
 import asyncio
 
-from typing import cast
+from typing import cast, Any
 
 from aiohttp import web, BodyPartReader, WSMsgType
 
@@ -244,12 +254,14 @@ async def run_script(request: web.Request) -> web.Response:
     rs_id = str(uuid.uuid4())
     rs = running_scripts[rs_id] = RunningScript(script, args)
     temporary_dirs[rs_id] = temp_dirs
+    running_scripts_changed(request.app)
 
     async def cleanup() -> None:
         try:
             await rs.get_return_code()
             await asyncio.sleep(CLEANUP_DELAY)
             running_scripts.pop(rs_id, None)
+            running_scripts_changed(request.app)
         finally:  # In case of cancellation
             # NB: Files kept around until expiary to aid debugging
             for temp_dir in temporary_dirs.pop(rs_id, []):
@@ -260,28 +272,42 @@ async def run_script(request: web.Request) -> web.Response:
     return web.Response(text=rs_id)
 
 
+def running_scripts_changed(app: web.Application) -> None:
+    """Notify all waiting processes that app["running_scripts"] has chagned."""
+    running_scripts_changed: asyncio.Event = app["running_scripts_changed"][0]
+    running_scripts_changed.set()
+    app["running_scripts_changed"][0] = asyncio.Event()
+
+async def wait_for_running_scripts_change(app: web.Application) -> None:
+    """Notify all waiting processes that app["running_scripts"] has chagned."""
+    running_scripts_changed: asyncio.Event = app["running_scripts_changed"][0]
+    await running_scripts_changed.wait()
+
+
+def enumerate_running(running_scripts: dict[str, RunningScript]) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": rs_id,
+            "script": rs.script.executable.name,
+            "name": rs.script.name,
+            "args": rs.args,
+            "start_time": rs.start_time.isoformat(),
+            "end_time": rs.end_time.isoformat()
+            if rs.end_time is not None
+            else None,
+            "progress": rs.progress,
+            "status": rs.status,
+            "return_code": rs.return_code,
+        }
+        for rs_id, rs in running_scripts.items()
+    ]
+
+
 @routes.get("/running/")
 async def get_running(request: web.Request) -> web.Response:
     running_scripts: dict[str, RunningScript] = request.app["running_scripts"]
 
-    return web.json_response(
-        [
-            {
-                "id": rs_id,
-                "script": rs.script.executable.name,
-                "name": rs.script.name,
-                "args": rs.args,
-                "start_time": rs.start_time.isoformat(),
-                "end_time": rs.end_time.isoformat()
-                if rs.end_time is not None
-                else None,
-                "progress": rs.progress,
-                "status": rs.status,
-                "return_code": rs.return_code,
-            }
-            for rs_id, rs in running_scripts.items()
-        ]
-    )
+    return web.json_response(enumerate_running(running_scripts))
 
 
 @routes.get("/running/ws")
@@ -300,6 +326,19 @@ async def get_running_websocket(request: web.Request) -> web.WebSocketResponse:
             match msg.json():
                 case {
                     "id": command_id,
+                    "type": "wait_for_running_change",
+                    "old_rs_ids": old_rs_ids,
+                }:
+                    async def wait_for_running_change(command_id: str, old_rs_ids: list[str]) -> None:
+                        while set(running_scripts) == set(old_rs_ids):
+                            await wait_for_running_scripts_change(request.app)
+                        await ws.send_json({"id": command_id, "value": enumerate_running(running_scripts)})
+                    
+                    tasks[command_id] = asyncio.create_task(
+                        wait_for_running_change(command_id, old_rs_ids)
+                    )
+                case {
+                    "id": command_id,
                     "type": command_type,
                     "rs_id": rs_id,
                     **command_args,
@@ -311,10 +350,15 @@ async def get_running_websocket(request: web.Request) -> web.WebSocketResponse:
                         if not hasattr(rs, command_type) or command_type.startswith("_"):
                             await ws.send_json({"id": command_id, "error": "Unknown command type"})
                         else:
-                            async def run_command(command_id, rs, command_type, command_args):
+                            async def run_command(
+                                command_id: str,
+                                rs: RunningScript,
+                                command_type: str,
+                                command_args: dict[str, Any],
+                            ) -> None:
                                 try:
                                     value = await getattr(rs, command_type)(**command_args)
-                                    # XXX: Special case for get_end_time (yuck!)
+                                    # Yuck: Special case for get_end_time
                                     if isinstance(value, datetime.datetime):
                                         value = value.isoformat()
                                     await ws.send_json({"id": command_id, "value": value})
@@ -332,7 +376,7 @@ async def get_running_websocket(request: web.Request) -> web.WebSocketResponse:
                                     command_id,
                                     rs,
                                     command_type,
-                                    command_args,
+                                    cast(dict[str, Any], command_args),
                                 )
                             )
                 case {"id": command_id}:
@@ -386,6 +430,7 @@ async def delete_running_script(request: web.Request) -> web.Response:
     await rs.kill()
 
     running_scripts.pop(rs_id, None)
+    running_scripts_changed(request.app)
 
     for temp_dir in temporary_dirs.pop(rs_id, []):
         temp_dir.cleanup()
@@ -421,6 +466,7 @@ def make_app(script_dir: Path) -> web.Application:
 
     app["script_dir"] = script_dir
     app["running_scripts"] = {}
+    app["running_scripts_changed"] = [asyncio.Event()]
     app["temporary_dirs"] = {}  # List of TemporaryDirectory per running script
     app["cleanup_tasks"] = []
 
