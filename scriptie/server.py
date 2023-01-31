@@ -138,6 +138,10 @@ How long to wait (in seconds) before removing complete scripts from the
 records.
 """
 
+STATIC_FILE_DIR = Path(__file__).parent / "static_files"
+"""
+Directory in which static files (e.g. the web UI) are stored.
+"""
 
 routes = web.RouteTableDef()
 
@@ -459,6 +463,12 @@ async def post_kill(request: web.Request) -> web.Response:
 
     return web.Response()
 
+
+@routes.get('/')
+async def get_index(request: web.Request) -> web.FileResponse:
+    return web.FileResponse(STATIC_FILE_DIR / "index.html")
+
+routes.static('/', STATIC_FILE_DIR)
 
 def make_app(script_dir: Path) -> web.Application:
     app = web.Application()
