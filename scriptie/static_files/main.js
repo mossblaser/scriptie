@@ -685,15 +685,17 @@ function Main() {
   
   return html`
     <div class="Main">
-      <div class="pane pane-left">
-        <h1>Scriptie</h1>
-        <${ScriptList}/>
+      <div class="split">
+        <div class="pane pane-left">
+          <h1>Scriptie</h1>
+          <${ScriptList}/>
+        </div>
+        <div class="pane pane-right">
+          <${RunningScriptList}/>
+        </div>
       </div>
-      <div class="pane pane-right">
-        <${RunningScriptList}/>
-      </div>
+      ${runScriptModal}
     </div>
-    ${runScriptModal}
   `;
 }
 

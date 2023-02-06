@@ -18,29 +18,37 @@ html, body {
 }
 
 .Main {
-  display: flex;
-  flex-direction: row;
+  position: static;
   
   height: 100vh;
   max-width: 1024px;
   margin: auto;
   
   background-color: white;
+}
+
+.Main > .split {
+  display: flex;
+  flex-direction: row;
+  
+  height: 100%;
+  
   filter: drop-shadow(0 0 16px #EEE);
-  overflow: hidden;
 }
 
-.Main > .pane {
+.Main > .split > .pane {
   overflow-y: auto;
+  
+  background-color: white;
 }
 
-.Main > .pane-left {
+.Main > .split > .pane-left {
   flex-grow: 0;
   flex-shrink: 0;
   width: 288px;
 }
 
-.Main > .pane-right {
+.Main > .split > .pane-right {
   flex-grow: 1;
   
   position: relative;
@@ -50,7 +58,7 @@ html, body {
   border-left-style: solid;
 }
 
-.Main > .pane-left > h1 {
+.Main > .split > .pane-left > h1 {
   font-size: 110%;
   font-weight: bold;
   
