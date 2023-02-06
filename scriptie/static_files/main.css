@@ -1,3 +1,542 @@
-body {
-    background-color: yellow;
+html, body {
+  height: 100%;
+  
+  font-family: sans;
+  font-size: 15px;
+}
+
+:root {
+  --pad: 1ex;
+  
+  --colour-accent: #3333AA;
+  --colour-error: #FFAAAA;
+  
+  --colour-running: #6666CC;
+  --colour-succeeded: #88CC88;
+  --colour-failed: #CC8888;
+  --colour-killed: #BBBBBB;
+}
+
+.Main {
+  display: flex;
+  flex-direction: row;
+  
+  height: 100vh;
+  max-width: 1024px;
+  margin: auto;
+  
+  background-color: white;
+  filter: drop-shadow(0 0 16px #EEE);
+  overflow: hidden;
+}
+
+.Main > .pane {
+  overflow-y: auto;
+}
+
+.Main > .pane-left {
+  flex-grow: 0;
+  flex-shrink: 0;
+  width: 288px;
+}
+
+.Main > .pane-right {
+  flex-grow: 1;
+  
+  position: relative;
+  
+  border-left-color: #ddd;
+  border-left-width: 1px;
+  border-left-style: solid;
+}
+
+.Main > .pane-left > h1 {
+  font-size: 110%;
+  font-weight: bold;
+  
+  padding: var(--pad);
+}
+
+
+.Spinner {
+  width: 100%;
+  height: 100%;
+  
+  position: relative;
+  
+  /* Prevents spinner flickering into existance */
+  animation: Spinner-fade-in 0.5s linear;
+}
+
+.Spinner > svg {
+  animation: Spinner-rotate 2s linear infinite;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  margin: -25px 0 0 -25px;
+  width: 50px;
+  height: 50px;
+}
+
+.Spinner > svg > circle {
+  stroke: var(--colour-accent);
+  stroke-linecap: round;
+  animation: Spinner-dash 1.5s ease-in-out infinite;
+}
+
+@keyframes Spinner-fade-in {
+  0%   { opacity: 0.0; }
+  50%  { opacity: 0.0; }
+  100% { opacity: 1.0; }
+}
+
+@keyframes Spinner-rotate {
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes Spinner-dash {
+  0% {
+    stroke-dasharray: 1, 150;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dasharray: 90, 150;
+    stroke-dashoffset: -35;
+  }
+  100% {
+    stroke-dasharray: 90, 150;
+    stroke-dashoffset: -124;
+  }
+}
+
+.CenteredMessage {
+  width: 100%;
+  height: 100%;
+  
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.CenteredMessage > .inner {
+  flex-grow: 0;
+  text-align: center;
+  
+  padding: var(--pad);
+}
+
+.Error > svg {
+  width: 40px;
+  height: 40px;
+  
+  fill: #aaa;
+  
+  margin-bottom: 1em;
+}
+
+
+.ScriptList > li {
+  width: 100%;
+
+  display: flex;
+}
+
+.ScriptList > li > a {
+  display: inline-block;
+  flex-grow: 1;
+  
+  padding: var(--pad);
+  
+  text-decoration: none;
+  color: inherit;
+  
+  border-bottom-color: #eee;
+  border-bottom-width: 1px;
+  border-bottom-style: solid;
+}
+
+.ScriptList > li > a:hover {
+  background-color: #eee;
+}
+
+.ScriptList > li > a:active {
+  background-color: #aaa;
+  color: white;
+}
+
+.ScriptList > li:first-child > a {
+  border-top-color: #eee;
+  border-top-width: 1px;
+  border-top-style: solid;
+}
+
+.Modal {
+  position: fixed;
+  
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  
+  background-color: rgb(0, 0, 0, 0.3);
+  
+  z-index: 9999;
+}
+
+.Modal > .inner {
+  background-color: white;
+  
+  max-width: 512px;
+  max-height: 95vh;
+  
+  overflow-y: auto;
+  
+  filter: drop-shadow(0 0 16px #000);
+}
+
+.RunScriptForm > h1 {
+  font-size: 120%;
+  font-weight: bold;
+  
+  padding-bottom: 1ex;
+}
+
+.RunScriptForm > p {
+  padding-top: 0.5ex;
+  padding-bottom: 0.5ex;
+}
+
+.RunScriptForm > form > .inputs {
+  display: table;
+  border-spacing: 0 8px;
+
+  margin-top: 1em;
+  margin-bottom: 1em;
+}
+
+.RunScriptForm > form > .inputs > .argument {
+  display: table-row;
+}
+
+.RunScriptForm > form > .inputs > .argument > label,
+.RunScriptForm > form > .inputs > .argument > .input {
+  display: table-cell;
+}
+
+.RunScriptForm > form > .inputs > .argument > label {
+  padding-right: 1em;
+}
+
+.RunScriptForm > form > .inputs > .argument > .input {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.RunScriptForm > form > .inputs > .argument > .input > .unknown-type-name {
+  position: relative;
+  
+  --stem-size: 6px;
+  --border-radius: 4px;
+  
+  background-color: var(--colour-error);
+  border-radius: var(--border-radius);
+  padding: 8px;
+  margin-top: calc(var(--stem-size) + 2px);
+}
+.RunScriptForm > form > .inputs > .argument > .input > .unknown-type-name::before {
+  content: "";
+  
+  position: absolute;
+  top: calc(-2 * var(--stem-size));
+  left: 1ex;
+  
+  box-sizing: border-box;
+  width: calc(-2 * var(--stem-size));
+  height: calc(-2 * var(--stem-size));
+  
+  border-style: solid;
+  border-width: var(--stem-size);
+  border-color: transparent;
+  border-bottom-color: var(--colour-error);
+}
+.RunScriptForm > form > .inputs > .argument > .input > .unknown-type-name > code {
+  font-family: monospace;
+}
+
+.RunScriptForm > form > .inputs > .argument > .input > .file {
+  display: flex;
+  flex-direction: row;
+}
+
+.RunScriptForm > form > .inputs > .argument > .input > .file > input {
+  flex-grow: 1;
+}
+
+.RunScriptForm > form > .inputs > .argument > .input > .file > label {
+  white-space: nowrap;
+}
+
+.RunScriptForm > form > .buttons {
+  position: sticky;
+  
+  bottom: 0em;
+  padding-bottom: 1em;
+  margin-bottom: -1em;
+  
+  padding-top: 0.5em;
+  
+  background-color: white;
+  
+  text-align: center;
+}
+
+.RunScriptForm > form > .buttons::before {
+  content: "";
+  display: block;
+  position: absolute;
+  
+  top: -1.5em;
+  height: 1.5em;
+  left: 0;
+  right: 0;
+  
+  background: linear-gradient(
+    rgba(255,255,255,0.0),
+    rgba(255,255,255,1.0)
+  );
+}
+
+.RunScriptForm > form > .buttons > button{
+  margin-right: 1em;
+}
+
+.RunScriptDialogue {
+  padding: 1em;
+}
+
+.RunScriptDialogue.uploading .form {
+  display: none;
+}
+
+.RunScriptDialogue .upload {
+  padding: 0.5em;
+}
+
+.RunScriptUpload {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  
+  height: 100%;
+}
+
+.RunScriptUpload > .inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.RunScriptUpload code {
+  font-family: monospace;
+}
+
+.RunScriptUpload > .inner > h1 {
+  font-weight: bold;
+}
+
+.RunScriptUpload > .inner > progress {
+  margin-top: 1ex;
+  margin-bottom: 1ex;
+}
+
+.RunScriptUpload-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.RunScriptUpload-error button {
+  margin-top: 1.25em;
+}
+
+.RunScriptUpload-error code {
+  font-family: monospace;
+}
+
+
+.RunningScriptList {
+  background-color: #eee;
+  min-height: 100%;
+}
+
+.RunningScriptList.empty {
+  color: #999;
+  height: 100%;
+}
+
+
+.RunningScriptListEntry > .header {
+  position: relative;
+  
+  padding: 8px;
+  margin-bottom: 2px;
+  margin-right: 2px;
+  
+  background-color: white;
+  
+  border-left-style: solid;
+  border-left-width: 4px;
+  
+  cursor: pointer;
+}
+
+.RunningScriptListEntry.running > .header {
+  border-left-color: var(--colour-running);
+}
+.RunningScriptListEntry.succeeded > .header {
+  border-left-color: var(--colour-succeeded);
+}
+.RunningScriptListEntry.failed > .header {
+  border-left-color: var(--colour-failed);
+}
+.RunningScriptListEntry.killed > .header {
+  border-left-color: var(--colour-killed);
+}
+
+.RunningScriptListEntry.succeeded > .header,
+.RunningScriptListEntry.failed > .header,
+.RunningScriptListEntry.killed > .header {
+  opacity: 0.6;
+}
+
+.RunningScriptListEntry > .header:hover {
+  border-left-width: 8px;
+  padding-left: 4px;
+}
+
+.RunningScriptListEntry > .header > .title-line {
+  display: flex;
+  flex-direction: row;
+}
+
+.RunningScriptListEntry > .header > .title-line > h1 {
+  font-weight: bold;
+  margin-bottom: 8px;
+  
+  flex-grow: 1;
+}
+
+.RunningScriptListEntry > .header > .title-line > .runtime {
+  font-size: 80%;
+  opacity: 0.6;
+  
+  text-align: right;
+}
+
+.RunningScriptListEntry.killed > .header > .status-line {
+  text-decoration-line: line-through;
+}
+
+.RunningScriptListEntry > .header > .progress-bar {
+  position: absolute;
+  
+  left: 4px;
+  bottom: 0;
+  right: 4px;
+  height: 4px;
+  
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 1ex,
+    #CCCCEE 1ex,
+    #CCCCEE 2ex
+  );
+  background-size: 200% 200%;
+  animation: RunningScriptListEntry-barberpole 10s linear infinite;
+}
+
+.RunningScriptListEntry > .header > .progress-bar::before {
+  content: "";
+  
+  display: block;
+  height: 100%;
+  
+  background-color: var(--colour-running);
+  
+  transition: transform 0.1s ease-out;
+  transform-origin: left;
+  transform: scaleX(var(--progress));
+}
+
+@keyframes RunningScriptListEntry-barberpole {
+  0% { background-position: 100% }
+  100% { background-position: 0% }
+}
+
+.RunningScriptListEntry > .details {
+  margin-top: -2px;
+  margin-bottom: 2px;
+  
+  border-left-style: solid;
+  border-left-width: 4px;
+}
+
+.RunningScriptListEntry.running > .details {
+  border-left-color: var(--colour-running);
+}
+.RunningScriptListEntry.succeeded > .details {
+  border-left-color: var(--colour-succeeded);
+}
+.RunningScriptListEntry.failed > .details {
+  border-left-color: var(--colour-failed);
+}
+.RunningScriptListEntry.killed > .details {
+  border-left-color: var(--colour-killed);
+}
+
+.RunningScriptListEntry > .details > .buttons {
+  display: flex;
+  flex-direction: row;
+  
+  padding: 0.5em;
+  padding-right: 1em;
+  
+  border-bottom-style: solid;
+  border-bottom-width: 1px;
+  border-bottom-color: #ccc;
+}
+
+.RunningScriptListEntry > .details > .buttons > * {
+  margin-right: 0.5em;
+}
+
+.RunningScriptListEntry > .details > .buttons > *:last-child {
+  margin-right: 0;
+}
+
+.RunningScriptListEntry > .details > .buttons > .hide-declarations {
+  flex-grow: 1;
+}
+
+.RunningScriptListEntry > .details > pre {
+  font-family: monospace;
+  
+  max-height: calc(100vh - 200px);
+  overflow-y: auto;
+  
+  padding: 8px;
+  padding-top: 4px;
+  padding-right: 0;
+  
+  margin-right: 8px;
 }

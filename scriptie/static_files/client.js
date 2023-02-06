@@ -16,6 +16,9 @@ import {
   useContext,
 } from "./preact_htm.js";
 
+import {useFormSubmission} from "./forms.js";
+
+
 /**
  * Promise which resolves to a JSON list of scripts.
  */
@@ -102,68 +105,6 @@ export function useScript(script) {
  */
 export function useRunningScript(rsId) {
   return usePromise(useCallback(() => fetchRunningScript(rsId), [rsId]));
-}
-
-
-/**
- * Submit a form via XMLHttpRequest, reporting upload progress and the returned
- * text.
- *
- * Takes details of how and where to send the data along with the FormData
- * object to send as arguments. If the using component is detroyed, or if the
- * arguments or become null, any ongoing form submissions will be cancelled.
- *
- * Returns an array [result, error, progress] where:
- *
- * * result is null or the returned text when the form submission returned a
- *   2xx status.
- * * error is null or an error message when something goes wrong or a non-2xx
- *   response is received.
- * * progress is a float between 0.0 and 1.0 indicating form data upload
- *   progress. Note that It may become 1.0 before result is non-null!
- */
-function useFormSubmission(method, url, formData) {
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState(null);
-  const [progress, setProgress] = useState(0.0);
-  
-  useEffect(() => {
-    // If no form provided, do nothing
-    if (!formData) {
-      return;
-    }
-    
-    const req = new XMLHttpRequest();
-    
-    req.onload = () => {
-      if (req.status >= 200 && req.status < 300) {
-        setResult(req.response)
-        setProgress(1.0);  // In case upload progress wasn't computable
-      } else {
-        setError(`HTTP ${req.status}: ${req.response}`);
-      }
-    }
-    req.onerror = (e) => {
-      setError(`Error during submission: ${e}`);
-    }
-    req.upload.onprogress = e => {
-      if (e.lengthComputable) {
-        setProgress(e.loaded / e.total);
-      }
-    }
-    
-    req.open(method, url);
-    req.send(formData);
-    
-    return () => {
-      req.abort();
-      setResult(null);
-      setError(null);
-      setProgress(0.0);
-    };
-  }, [method, url, formData]);
-
-  return [result, error, progress];
 }
 
 
@@ -528,15 +469,17 @@ export function useRunningScriptOutput(id) {
     const run = {current: true};
     
     (async () => {
-      let length = 0;
-      setOutput("");
-      while (run.current) {
-        const content = await rwsc("get_output", {rs_id: id, after: length});
-        if (run.current && content.length > 0) {
-          appendOutput(content);
-          length += content.length;
-        } else {
-          return;
+      if (id) {
+        let length = 0;
+        setOutput("");
+        while (run.current) {
+          const content = await rwsc("get_output", {rs_id: id, after: length});
+          if (run.current && content.length > 0) {
+            appendOutput(content);
+            length += content.length;
+          } else {
+            return;
+          }
         }
       }
     })();
