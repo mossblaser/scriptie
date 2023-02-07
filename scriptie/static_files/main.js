@@ -217,6 +217,7 @@ function approxTimeSince(timestamp) {
 }
 
 
+/** Hook which returns the current approxTimeSince a timestamp. */
 function useApproxTimeSince(timestamp) {
   const [value, setValue] = useState(approxTimeSince(timestamp))
   
@@ -299,12 +300,20 @@ function useKeepScrolledToBottom(ref, sensitivityList) {
   }, sensitivityList);
 }
 
-
-
-
-
-
-
+/** A simple 'X' button. */
+function CloseButton({onClick}) {
+  return html`
+    <div class="CloseButton" tabindex="2" onClick=${onClick}>
+      <svg viewBox="0 0 50 50" width="15px">
+        <path
+          d="M4 4 L46 46 M4 46 L 46 4"
+          stroke="black"
+          stroke-width="8"
+        />
+      </svg>
+    </div>
+  `;
+}
 
 
 /** The list of available scripts. */
@@ -327,7 +336,7 @@ function ScriptList() {
         <li key=${script.script}>
           <a
             href="#/scripts/${encodeURI(script.script)}"
-            title=${script.description}
+            title="${script.description} (${script.script})"
             tabindex="1"
           >
             ${script.name}
@@ -873,15 +882,7 @@ function App() {
         <div class="pane pane-left">
           <div class="header">
             <h1>Scriptie</h1>
-            <div class="close" tabindex="2" onClick=${goBack}>
-              <svg viewBox="0 0 50 50" width="100%">
-                <path
-                  d="M4 4 L46 46 M4 46 L 46 4"
-                  stroke="black"
-                  stroke-width="8"
-                />
-              </svg>
-            </div>
+            <${CloseButton} onClick=${goBack} />
           </div>
           <${ScriptList}/>
         </div>
