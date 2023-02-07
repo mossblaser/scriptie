@@ -101,7 +101,11 @@ function Modal({children, onDismiss=null}) {
   }, []);
   
   return html`
-    <div class="Modal" ref=${bgRef} onClick=${onBgClick}>
+    <div
+      class="Modal"
+      ref=${bgRef}
+      onClick=${onBgClick}
+    >
       <div class="inner">
         ${children}
       </div>
@@ -109,6 +113,70 @@ function Modal({children, onDismiss=null}) {
   `;
 }
 
+function useVisualViewport() {
+  function copyVisualViewport() {
+    return {
+      offsetLeft: window.visualViewport.offsetLeft,
+      offsetTop: window.visualViewport.offsetTop,
+      pageLeft: window.visualViewport.pageLeft,
+      pageTop: window.visualViewport.pageTop,
+      width: window.visualViewport.width,
+      height: window.visualViewport.height,
+      scale: window.visualViewport.scale,
+    };
+  }
+  
+  const [visualViewport, setVisualViewport] = useState(copyVisualViewport());
+  
+  useEffect(() => {
+    const onResize = evt => {
+      setVisualViewport(copyVisualViewport());
+    };
+    window.visualViewport.addEventListener('resize', onResize);
+    return () => window.visualViewport.removeEventListener('resize', onResize);
+  }, []);
+  
+  return visualViewport;
+}
+
+function FloatingActionButton({children, onClick}) {
+  // On mobile browsers, the UI appearing and disappearing will lead to the
+  // action button being placed below the UI some of the time. We avoid this by
+  // manually tracking the visual viewport size and moving the button
+  // accordingly.
+  const {offsetTop, offsetLeft, width, height} = useVisualViewport();
+  
+  return html`
+    <div
+      class="FloatingActionButton"
+      style=${{
+        top: offsetTop,
+        left: offsetLeft,
+        width,
+        height,
+        maxWidth: "",
+      }}
+    >
+      <div class="inner" tabindex="0" onClick=${onClick}>
+        ${children}
+      </div>
+    </div>
+  `;
+}
+
+function PlusFloatingActionButton({onClick}) {
+  return html`
+    <${FloatingActionButton} onClick=${onClick}>
+      <svg viewBox="0 0 50 50" width="25px" height="25px">
+        <path
+          d="M25 0 L25 50 M0 25 L50 25"
+          stroke-width="8"
+          stroke="white"
+        />
+      </svg>
+    <//>
+  `;
+}
 
 function ScriptList() {
   const [scriptList, error] = useScripts();
@@ -554,7 +622,7 @@ function RunningScriptListEntry({
               checked=${hideDeclarations}
               onChange=${toggleHideDeclarations}
             />
-            Hide progress messages
+            Hide progress
           </label>
           <button onClick=${onRunAgain} class="again">
             Run again
@@ -648,13 +716,31 @@ function RunningScriptList() {
 function Main() {
   const hash = useHash();
   
-  const hideScriptDialogue = useCallback(() => {
+  const goBack = useCallback(() => {
+    history.back();
+  }, []);
+  
+  const showScriptList = useCallback(() => {
     window.location.hash = "#/scripts/";
   }, []);
   
   let runScriptModal = null;
   
-  const scriptHashMatch = hash.match(/^#\/scripts\/([^?]+)([?].*)?$/)
+  // The intended 'mode' of the application depends on which hash we've been in
+  // most recently (note that when the start script modal is active we may have
+  // got there from script list *or* the 'Run again' button on a running
+  // script).
+  const modeRef = useRef("running-list");
+  if (hash === "#/scripts/") {
+    modeRef.current = "script-list";
+  } else if (hash.startsWith("#/scripts/")) {
+    modeRef.current = "script-form";
+  } else if (hash.startsWith("#/running/")) {
+    modeRef.current = "running-list";
+  }
+  const mode = modeRef.current;
+  
+  const scriptHashMatch = hash.match(/^#\/scripts\/([^?]+)([?].*)?$/);
   if (scriptHashMatch) {
     const script = decodeURI(scriptHashMatch[1]);
     
@@ -672,26 +758,40 @@ function Main() {
     }
     
     runScriptModal = html`
-      <${Modal} onDismiss=${hideScriptDialogue}>
+      <${Modal} onDismiss=${goBack}>
         <${RunScriptDialogue}
           script=${script}
           initialArgs=${initialArgs}
-          onDismiss=${hideScriptDialogue}
+          onDismiss=${goBack}
         />
       <//>
     `;
   }
   
-  
   return html`
-    <div class="Main">
+    <div class="Main ${mode}">
       <div class="split">
         <div class="pane pane-left">
-          <h1>Scriptie</h1>
+          <div class="header">
+            <h1>Scriptie</h1>
+            <div class="close" tabindex="2" onClick=${goBack}>
+              <svg viewBox="0 0 50 50" width="100%">
+                <path
+                  d="M4 4 L46 46 M4 46 L 46 4"
+                  stroke="black"
+                  stroke-width="8"
+                />
+              </svg>
+            </div>
+          </div>
           <${ScriptList}/>
         </div>
         <div class="pane pane-right">
           <${RunningScriptList}/>
+          <div class="action-button">
+            <${PlusFloatingActionButton} onClick=${showScriptList} />
+          </div>
+          <div class="shade" onClick=${goBack} />
         </div>
       </div>
       ${runScriptModal}

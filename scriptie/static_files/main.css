@@ -8,8 +8,10 @@ html, body {
 :root {
   --pad: 1ex;
   
-  --colour-accent: #3333AA;
   --colour-error: #FFAAAA;
+  
+  --colour-accent: #3333AA;
+  --colour-accent-highlight: #7777CC;
   
   --colour-running: #6666CC;
   --colour-succeeded: #88CC88;
@@ -18,8 +20,6 @@ html, body {
 }
 
 .Main {
-  position: static;
-  
   height: 100vh;
   max-width: 1024px;
   margin: auto;
@@ -58,11 +58,100 @@ html, body {
   border-left-style: solid;
 }
 
-.Main > .split > .pane-left > h1 {
+.Main > .split > .pane-left > .header {
+  padding: var(--pad);
+  
+  display: flex;
+  flex-direction: row;
+}
+
+.Main > .split > .pane-left > .header > h1 {
+  flex-grow: 1;
+  
   font-size: 110%;
   font-weight: bold;
+}
+
+.Main > .split > .pane-left > .header > .close {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
   
-  padding: var(--pad);
+  width: 15px;
+  
+  cursor: pointer;
+}
+
+.Main > .split > .pane-right > .action-button {
+  display: none;
+}
+
+.Main > .split > .pane-right > .shade {
+  display: none;
+}
+
+@media (width <= 640px) {
+  .Main.script-form > .split {
+    display: none;
+  }
+  
+  .Main > .split > .pane-left {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    
+    transform: none;
+    
+    z-index: 2;
+    
+    filter: drop-shadow(0 0 16px #000);
+    
+    min-width: clac(min(300px, 100%));
+    max-width: calc(100% - 3em);
+    
+    transition-property: transform, filter;
+    transition-duration: 0.2s;
+    transition-timing-function: ease-in-out;
+  }
+  
+  .Main.running-list > .split > .pane-left {
+    transform: translateX(-100%);
+    filter: drop-shadow(0 0 0px #000);
+  }
+
+  .Main > .split > .pane-left > .header > .close {
+    display: flex;
+  }
+  
+  .Main > .split > .pane-right > .action-button {
+    display: block;
+  }
+  
+  .Main > .split > .pane-right > .shade {
+    display: block;
+    
+    visibility: hidden;
+    opacity: 0.0;
+    
+    transition-property: opacity, visibility;
+    transition-duration: 0.2s;
+    transition-timing-function: linear;
+  }
+  
+  .Main.script-list > .split > .pane-right > .shade {
+    position: fixed;
+    
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    
+    visibility: visible;
+    background-color: #000;
+    opacity: 0.7;
+    z-index: 1;
+  }
 }
 
 
@@ -201,12 +290,75 @@ html, body {
 .Modal > .inner {
   background-color: white;
   
-  max-width: 512px;
-  max-height: 95vh;
+  max-width: calc(min(100vw - 2em, 512px));
+  max-height: calc(100vh - 2em);
   
   overflow-y: auto;
   
   filter: drop-shadow(0 0 16px #000);
+}
+
+@media (width <= 640px) {
+  .Modal {
+    position: static;
+    background-color: transparent;
+  }
+  
+  .Modal > .inner {
+    width: 100%;
+    
+    max-width: unset;
+    max-height: unset;
+    
+    overflow-y: visible;
+    
+    filter: none;
+  }
+}
+
+.FloatingActionButton {
+  pointer-events: none;
+  
+  position: fixed;
+  top: 0;
+  left: 0;
+  
+  height: 99vh;
+  width: 100vw;
+  max-width: 100%;
+}
+
+.FloatingActionButton > .inner {
+  pointer-events: auto;
+  
+  position: absolute;
+  
+  right: 1em;
+  bottom: 1em;
+  z-index: 3;
+  
+  --size: 4em;
+  
+  width: var(--size);
+  height: var(--size);
+  border-radius: calc(var(--size) / 2);
+  
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  
+  background-color: var(--colour-accent);
+  color: white;
+  
+  cursor: pointer;
+}
+
+.FloatingActionButton > .inner:hover {
+  background-color: var(--colour-accent-highlight);
+}
+
+.FloatingActionButton > .inner:active {
+  background-color: var(--colour-accent);
 }
 
 .RunScriptForm > h1 {
@@ -246,6 +398,35 @@ html, body {
   display: flex;
   flex-direction: column;
   align-items: stretch;
+}
+
+@media (width <= 640px) {
+  .RunScriptForm > form > .inputs {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .RunScriptForm > form > .inputs > .argument {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    
+    margin-bottom: 0.75em;
+  }
+  
+  .RunScriptForm > form > .inputs > .argument > label::after {
+    content: ":";
+  }
+
+  .RunScriptForm > form > .inputs > .argument > label,
+  .RunScriptForm > form > .inputs > .argument > .input {
+    display: flex;
+  }
+
+  .RunScriptForm > form > .inputs > .argument > .input {
+    margin-left: 1em;
+  }
 }
 
 .RunScriptForm > form > .inputs > .argument > .input > .unknown-type-name {
@@ -299,6 +480,9 @@ html, body {
   padding-bottom: 1em;
   margin-bottom: -1em;
   
+  margin-left: -1em;
+  margin-right: -1em;
+  
   padding-top: 0.5em;
   
   background-color: white;
@@ -322,7 +506,7 @@ html, body {
   );
 }
 
-.RunScriptForm > form > .buttons > button{
+.RunScriptForm > form > .buttons > button {
   margin-right: 1em;
 }
 
