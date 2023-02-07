@@ -401,6 +401,12 @@ html, body {
   padding-right: 1em;
 }
 
+.RunScriptForm > form > .inputs > .argument > label.unnamed {
+  font-size: 90%;
+  font-style: italic;
+  color: #666;
+}
+
 .RunScriptForm > form > .inputs > .argument > .input {
   display: flex;
   flex-direction: column;

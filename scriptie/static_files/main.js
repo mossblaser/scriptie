@@ -399,10 +399,12 @@ function RunScriptForm({
     const name = `arg${inputs.length}`;
     const id = `${baseId}_${name}`;
     
+    const extraClass = arg.description ? "" : "unnamed";
+    
     inputs.push(html`
       <div class="argument" key=${name}>
-        <label class="description" for=${id}>
-          ${arg.description}
+        <label class="description ${extraClass}" for=${id}>
+          ${arg.description || `(Argument ${i+1})`}
         </label>
         <div class="input">
           <${ArgumentInput}
@@ -742,10 +744,18 @@ function RunningScriptListEntry({
         onClick=${toggleExpanded}
       >
         <div class="title-line">
-          <h1>${name}</h1>
-          <div class="runtime">${runtime}</div>
+          <h1 title=${script}>${name}</h1>
+          <div
+            class="runtime"
+            title="${startTime} - ${endTime || "(ongoing)"}"
+          >
+            ${runtime}
+          </div>
         </div>
-        <div class="status-line">
+        <div 
+          class="status-line"
+          title="${returnCode !== null ? `Return code: ${returnCode}` : ""}"
+        >
           ${statusLinePrefix}
           ${(statusLinePrefix && status) ? ": " : ""}
           ${status}
