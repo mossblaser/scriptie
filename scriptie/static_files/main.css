@@ -19,7 +19,7 @@ html, body {
   --colour-killed: #BBBBBB;
 }
 
-.Main {
+.App {
   height: 100vh;
   max-width: 1024px;
   margin: auto;
@@ -27,7 +27,7 @@ html, body {
   background-color: white;
 }
 
-.Main > .split {
+.App > .split {
   display: flex;
   flex-direction: row;
   
@@ -36,19 +36,19 @@ html, body {
   filter: drop-shadow(0 0 16px #EEE);
 }
 
-.Main > .split > .pane {
+.App > .split > .pane {
   overflow-y: auto;
   
   background-color: white;
 }
 
-.Main > .split > .pane-left {
+.App > .split > .pane-left {
   flex-grow: 0;
   flex-shrink: 0;
   width: 288px;
 }
 
-.Main > .split > .pane-right {
+.App > .split > .pane-right {
   flex-grow: 1;
   
   position: relative;
@@ -58,21 +58,21 @@ html, body {
   border-left-style: solid;
 }
 
-.Main > .split > .pane-left > .header {
+.App > .split > .pane-left > .header {
   padding: var(--pad);
   
   display: flex;
   flex-direction: row;
 }
 
-.Main > .split > .pane-left > .header > h1 {
+.App > .split > .pane-left > .header > h1 {
   flex-grow: 1;
   
   font-size: 110%;
   font-weight: bold;
 }
 
-.Main > .split > .pane-left > .header > .close {
+.App > .split > .pane-left > .header > .close {
   display: none;
   flex-direction: column;
   justify-content: center;
@@ -82,20 +82,20 @@ html, body {
   cursor: pointer;
 }
 
-.Main > .split > .pane-right > .action-button {
+.App > .split > .pane-right > .action-button {
   display: none;
 }
 
-.Main > .split > .pane-right > .shade {
+.App > .split > .pane-right > .shade {
   display: none;
 }
 
 @media (width <= 640px) {
-  .Main.script-form > .split {
+  .App.script-form > .split {
     display: none;
   }
   
-  .Main > .split > .pane-left {
+  .App > .split > .pane-left {
     position: absolute;
     top: 0;
     left: 0;
@@ -115,20 +115,20 @@ html, body {
     transition-timing-function: ease-in-out;
   }
   
-  .Main.running-list > .split > .pane-left {
+  .App.running-list > .split > .pane-left {
     transform: translateX(-100%);
     filter: drop-shadow(0 0 0px #000);
   }
 
-  .Main > .split > .pane-left > .header > .close {
+  .App > .split > .pane-left > .header > .close {
     display: flex;
   }
   
-  .Main > .split > .pane-right > .action-button {
+  .App > .split > .pane-right > .action-button {
     display: block;
   }
   
-  .Main > .split > .pane-right > .shade {
+  .App > .split > .pane-right > .shade {
     display: block;
     
     visibility: hidden;
@@ -139,7 +139,7 @@ html, body {
     transition-timing-function: linear;
   }
   
-  .Main.script-list > .split > .pane-right > .shade {
+  .App.script-list > .split > .pane-right > .shade {
     position: fixed;
     
     left: 0;

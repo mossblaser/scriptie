@@ -18,7 +18,8 @@ import {
 
 import {ArgumentInput} from "./forms.js";
 
-////////////////////////////////////////////////////////////////////////////////
+
+
 
 /** Hook returning window.location.hash. */
 function useHash() {
@@ -38,8 +39,7 @@ function useId() {
   return useState(() => `__useId_${_nextId++}`)[0];
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
+/** Simple centred spinner animation. */
 function Spinner() {
   return html`
     <div class="Spinner">
@@ -50,6 +50,7 @@ function Spinner() {
   `;
 }
 
+/** Vertically and horizontally centre whatever is inside. */
 function CenteredMessage({children}) {
   return html`
     <div class="CenteredMessage">
@@ -60,6 +61,7 @@ function CenteredMessage({children}) {
   `;
 }
 
+/** Shows an error message centered on the screen. */
 function Error({children}) {
   return html`
     <${CenteredMessage}>
@@ -74,6 +76,11 @@ function Error({children}) {
   `;
 }
 
+/**
+ * Modal dialogue containing the provided children.
+ *
+ * Dismissed by 'escape' key or clicking on the background.
+ */
 function Modal({children, onDismiss=null}) {
   // Close modal on pressing escape
   useEffect(() => {
@@ -93,6 +100,7 @@ function Modal({children, onDismiss=null}) {
   
   const bgRef = useRef();
   const onBgClick = useCallback(e => {
+    // Prevent bubbled events being mistaken for clicking the BG
     if (e.target === bgRef.current) {
       if (onDismiss) {
         onDismiss();
@@ -113,6 +121,7 @@ function Modal({children, onDismiss=null}) {
   `;
 }
 
+/** Hook returning the current visual viewport. */
 function useVisualViewport() {
   function copyVisualViewport() {
     return {
@@ -139,6 +148,7 @@ function useVisualViewport() {
   return visualViewport;
 }
 
+/** An Android-style floating action button. */
 function FloatingActionButton({children, onClick}) {
   // On mobile browsers, the UI appearing and disappearing will lead to the
   // action button being placed below the UI some of the time. We avoid this by
@@ -164,6 +174,7 @@ function FloatingActionButton({children, onClick}) {
   `;
 }
 
+/** A floating action button with a + symbol on it. */
 function PlusFloatingActionButton({onClick}) {
   return html`
     <${FloatingActionButton} onClick=${onClick}>
@@ -175,205 +186,6 @@ function PlusFloatingActionButton({onClick}) {
         />
       </svg>
     <//>
-  `;
-}
-
-function ScriptList() {
-  const [scriptList, error] = useScripts();
-  
-  if (error !== null) {
-    return html`<${Error}>${error}<//>`;
-  }
-  
-  if (scriptList === null) {
-    return html`<${Spinner}/>`;
-  }
-  
-  scriptList.sort((a, b) => (a.name < b.name) ? -1 : (a.name > b.name) ?  1 : 0);
-  
-  return html`
-    <ul class="ScriptList">
-      ${scriptList.map(script => html`
-        <li key=${script.script}>
-          <a
-            href="#/scripts/${encodeURI(script.script)}"
-            title=${script.description}
-            tabindex="1"
-          >
-            ${script.name}
-          </a>
-        </li>
-      `)}
-    </ul>
-  `;
-}
-
-function RunScriptForm({
-  script: scriptFilename,
-  onSubmit,
-  onCancel,
-  initialArgs=null,
-}) {
-  const [script, error] = useScript(scriptFilename);
-  
-  if (error !== null) {
-    return html`<${Error}>${error}<//>`;
-  }
-  
-  if (script === null) {
-    return html`<${Spinner}/>`;
-  }
-  
-  let description = null;
-  if (script.description) {
-    description = html`<p>${script.description}</p>`;
-  }
-  
-  // Focus first input when first displayed
-  const firstInputRef = useRef();
-  useEffect(() => {
-    if (firstInputRef.current) {
-      firstInputRef.current.focus();
-    }
-  }, [script.args]);
-  
-  const baseId = useId();
-  
-  const inputs = [];
-  for (let i = 0; i < script.args.length; i++) {
-    const arg = script.args[i];
-    const initialValue = (initialArgs || [])[i];
-    
-    const name = `arg${inputs.length}`;
-    const id = `${baseId}_${name}`;
-    
-    inputs.push(html`
-      <div class="argument" key=${name}>
-        <label class="description" for=${id}>
-          ${arg.description}
-        </label>
-        <div class="input">
-          <${ArgumentInput}
-            type=${arg.type}
-            id=${id}
-            name=${name}
-            value=${initialValue}
-            inputRef=${i == 0 ? firstInputRef : null}
-          />
-        </div>
-      </div>
-    `);
-  }
-  
-  const onSubmitCb = useCallback(e => {
-    if (onSubmit) {
-      onSubmit(new FormData(e.target));
-    }
-    e.preventDefault();
-    e.stopPropagation();
-  }, [onSubmit]);
-  
-  return html`
-    <div class="RunScriptForm">
-      <h1>${script.name}</h1>
-      ${description}
-      <form onSubmit=${onSubmitCb}>
-        <div class="inputs">
-          ${inputs}
-        </div>
-        <div class="buttons">
-          <button type="button" onClick=${onCancel}>Cancel</button>
-          <input type="submit" value="Run script"/>
-        </div>
-      </form>
-    </div>
-  `;
-}
-
-function RunScriptUpload({script, formData, onFinish, onFail, onCancel}) {
-  const [response, error, progress] = useStartScript(script, formData);
-  
-  if (error) {
-    return html`
-      <${Error}>
-        <div class="RunScriptUpload-error">
-          <p>Couldn't start script: <code>${error}</code></p>
-          <button onClick=${onFail}>OK</button>
-        </div>
-      <//>
-    `;
-  }
-  
-  useEffect(() => {
-    if (response && onFinish) {
-      onFinish(response)
-    }
-  }, [response, script, formData, onFinish]);
-  
-  let state;
-  if (response) {
-    state = "Script started!";
-  } else if (progress <1.0) {
-    state = "Uploading data..." ;
-  } else {
-    state =  "Starting script...";
-  }
-  
-  return html`
-    <div class="RunScriptUpload">
-      <div class="inner">
-        <h1>${state}</h1>
-        <progress value="${progress}" max="1" />
-        <button class="cancel" onClick=${onCancel}>Cancel</button>
-      </div>
-    </div>
-  `;
-}
-
-function RunScriptDialogue({script, onDismiss, initialArgs=null}) {
-  const [formData, setFormData] = useState(null);
-  
-  const onSubmit = useCallback(formData => {
-    // Prevent double submission
-    setFormData(oldFormData => oldFormData ? oldFormData : formData);
-  }, []);
-  
-  const onCancel = useCallback(() => setFormData(null), []);
-  const onFinish = useCallback(rs_id => {
-    window.location.hash = `#/running/${encodeURI(rs_id)}`;
-  }, []);
-  
-  let upload = null;
-  if (formData) {
-    upload = html`
-      <div class="upload">
-        <${RunScriptUpload}
-          script=${script}
-          formData=${formData}
-          onFinish=${onFinish}
-          onCancel=${onCancel}
-          onFail=${onCancel}
-        />
-      </div>
-    `;
-  }
-  
-  // NB: We hide the form during upload (rather than removing it entirely) so
-  // that if we cancel/fail we can re-show it without loss of state.
-  const uploadingClass = formData ? "uploading" : "";
-  
-  return html`
-    <div class="RunScriptDialogue ${uploadingClass}">
-      <div class="form">
-        <${RunScriptForm}
-          script=${script}
-          initialArgs=${initialArgs}
-          onSubmit=${onSubmit}
-          onCancel=${onDismiss}
-        />
-      </div>
-      ${upload}
-    </div>
   `;
 }
 
@@ -464,10 +276,10 @@ function scrollIntoViewIfNeeded(elem) {
 
 /**
  * Given a ref to a scrollable element, keep the element scrolled to the bottom
- * whenever displayedValue changes, unless the user has manually scrolled it
- * back.
+ * whenever anything in the sensitivityList array changes, unless the user has
+ * manually scrolled up.
  */
-function useScrollWithUpdates(ref, displayedValue) {
+function useKeepScrolledToBottom(ref, sensitivityList) {
   const lastAtBottomRef = useRef(true);
   
   if (ref.current) {
@@ -484,9 +296,266 @@ function useScrollWithUpdates(ref, displayedValue) {
       // Scroll to bottom
       elem.scrollTop = elem.scrollHeight - elem.offsetHeight;
     }
-  }, [displayedValue]);
+  }, sensitivityList);
 }
 
+
+
+
+
+
+
+
+
+/** The list of available scripts. */
+function ScriptList() {
+  const [scriptList, error] = useScripts();
+  
+  if (error !== null) {
+    return html`<${Error}>${error}<//>`;
+  }
+  
+  if (scriptList === null) {
+    return html`<${Spinner}/>`;
+  }
+  
+  scriptList.sort((a, b) => (a.name < b.name) ? -1 : (a.name > b.name) ?  1 : 0);
+  
+  return html`
+    <ul class="ScriptList">
+      ${scriptList.map(script => html`
+        <li key=${script.script}>
+          <a
+            href="#/scripts/${encodeURI(script.script)}"
+            title=${script.description}
+            tabindex="1"
+          >
+            ${script.name}
+          </a>
+        </li>
+      `)}
+    </ul>
+  `;
+}
+
+/**
+ * Form for specifying script arguments.
+ *
+ * @param onSubmit Called with the FormData gathered from the form.
+ * @param onCancel Called when 'Cancel' is clicked.
+ * @param initialArgs Array of initial values for all arguments (e.g. if
+ *                    re-running script with same args).
+ */
+function RunScriptForm({
+  script: scriptFilename,
+  onSubmit,
+  onCancel,
+  initialArgs=null,
+}) {
+  const [script, error] = useScript(scriptFilename);
+  
+  if (error !== null) {
+    return html`
+      <${Error}>
+        <p>${error}</p>
+        <button onClick=${onCancel}>Close</button>
+      <//>
+    `;
+  }
+  
+  if (script === null) {
+    return html`<${Spinner}/>`;
+  }
+  
+  let description = null;
+  if (script.description) {
+    description = html`<p>${script.description}</p>`;
+  }
+  
+  // Focus first input when first displayed
+  const firstInputRef = useRef();
+  useEffect(() => {
+    if (firstInputRef.current) {
+      firstInputRef.current.focus();
+    }
+  }, [script.args]);
+  
+  const baseId = useId();
+  
+  const inputs = [];
+  for (let i = 0; i < script.args.length; i++) {
+    const arg = script.args[i];
+    const initialValue = (initialArgs || [])[i];
+    
+    const name = `arg${inputs.length}`;
+    const id = `${baseId}_${name}`;
+    
+    inputs.push(html`
+      <div class="argument" key=${name}>
+        <label class="description" for=${id}>
+          ${arg.description}
+        </label>
+        <div class="input">
+          <${ArgumentInput}
+            type=${arg.type}
+            id=${id}
+            name=${name}
+            value=${initialValue}
+            inputRef=${i == 0 ? firstInputRef : null}
+          />
+        </div>
+      </div>
+    `);
+  }
+  
+  const onSubmitCb = useCallback(e => {
+    if (onSubmit) {
+      onSubmit(new FormData(e.target));
+    }
+    e.preventDefault();
+    e.stopPropagation();
+  }, [onSubmit]);
+  
+  return html`
+    <div class="RunScriptForm">
+      <h1>${script.name}</h1>
+      ${description}
+      <form onSubmit=${onSubmitCb}>
+        <div class="inputs">
+          ${inputs}
+        </div>
+        <div class="buttons">
+          <button type="button" onClick=${onCancel}>Cancel</button>
+          <input type="submit" value="Run script"/>
+        </div>
+      </form>
+    </div>
+  `;
+}
+
+/**
+ * Start a script running, showing a progress indicator while data is
+ * uploaded.
+ *
+ * @param formData The form data to submit (or null to do nothing and cancel
+ *                 any previously started upload).
+ * @param onFinish Called with the running script ID when the script has
+ *                 started.
+ * @param onFail Called if the upload fails for some reason (e.g. network).
+ * @param onCancel Called if the cancel button is pressed. (Does not cancel the
+ *                 submission on its own!)
+ */
+function RunScriptUpload({script, formData, onFinish, onFail, onCancel}) {
+  const [response, error, progress] = useStartScript(script, formData);
+  
+  if (error) {
+    return html`
+      <${Error}>
+        <div class="RunScriptUpload-error">
+          <p>Couldn't start script: <code>${error}</code></p>
+          <button onClick=${onFail}>OK</button>
+        </div>
+      <//>
+    `;
+  }
+  
+  // This is a bit naughty but it does work...
+  useEffect(() => {
+    if (response && onFinish) {
+      onFinish(response)
+    }
+  }, [response, script, formData, onFinish]);
+  
+  let state;
+  if (response) {
+    state = "Script started!";
+  } else if (progress <1.0) {
+    state = "Uploading data..." ;
+  } else {
+    state =  "Starting script...";
+  }
+  
+  return html`
+    <div class="RunScriptUpload">
+      <div class="inner">
+        <h1>${state}</h1>
+        <progress value="${progress}" max="1" />
+        <button class="cancel" onClick=${onCancel}>Cancel</button>
+      </div>
+    </div>
+  `;
+}
+
+/** Top level dialogue showing script argument form then upload progress. */
+function RunScriptDialogue({script, initialArgs=null}) {
+  const [formData, setFormData] = useState(null);
+  
+  // Form callbacks
+  const onSubmit = useCallback(formData => {
+    // Prevent double submission
+    setFormData(oldFormData => oldFormData ? oldFormData : formData);
+  }, []);
+  const onCancel = useCallback(() => {
+    history.back()
+  }, []);
+  
+  // Upload callbacks
+  const cancelUpload = useCallback(() => setFormData(null), []);
+  const onFinish = useCallback(rs_id => {
+    window.location.hash = `#/running/${encodeURI(rs_id)}`;
+  }, []);
+  
+  let upload = null;
+  if (formData) {
+    upload = html`
+      <div class="upload">
+        <${RunScriptUpload}
+          script=${script}
+          formData=${formData}
+          onFinish=${onFinish}
+          onCancel=${cancelUpload}
+          onFail=${cancelUpload}
+        />
+      </div>
+    `;
+  }
+  
+  // NB: We hide the form during upload (rather than removing it entirely) so
+  // that if we cancel/fail we can re-show it without loss of state.
+  const uploadingClass = formData ? "uploading" : "";
+  
+  return html`
+    <div class="RunScriptDialogue ${uploadingClass}">
+      <div class="form">
+        <${RunScriptForm}
+          script=${script}
+          initialArgs=${initialArgs}
+          onSubmit=${onSubmit}
+          onCancel=${onCancel}
+        />
+      </div>
+      ${upload}
+    </div>
+  `;
+}
+
+/**
+ * Show (and control) the state of a running script.
+ *
+ * @param id The running script ID
+ * @param script The script's filename.
+ * @param name The script's friendly name
+ * @param args The args used to call the script.
+ * @param startTime The time the script was started (ISO timestamp)
+ *
+ * The following props will be used as initial values with live data streamed
+ * in from the server to supersede it.
+ *
+ * @param endTime The time the script was ended (ISO timestamp) or null.
+ * @param progress The current progress.
+ * @param status The current status.
+ * @param returnCode The return code or null.
+ */
 function RunningScriptListEntry({
   id,
   script,
@@ -498,44 +567,27 @@ function RunningScriptListEntry({
   status: initialStatus,
   returnCode: initialReturnCode,
 }) {
+  // Pull in live status info
   const endTime = useRunningScriptEndTime(id, initialEndTime);
   const progress = useRunningScriptProgress(id, initialProgress);
   const status = useRunningScriptStatus(id, initialStatus);
   const returnCode = useRunningScriptReturnCode(id, initialReturnCode);
   
-  const timeSinceStarted = useApproxTimeSince(Date.parse(startTime));
-  const timeSinceEnded = useApproxTimeSince(endTime ? Date.parse(endTime) : 0);
-  
-  const [expanded, setExpanded] = useState(false);
-  const toggleExpanded = useCallback(() => setExpanded(state => !state), []);
-  
-  const output = useRunningScriptOutput(expanded ? id : null);
-  
-  const outerRef = useRef();
-  const outputRef = useRef();
-  
-  // Scroll into view on first render if the window hash matches this ID since
-  // the ID will have been set just moments before this entry finally appeared
-  // in the UI.
-  const hash = useHash();
-  useEffect(() => {
-    if (hash === `#/running/${encodeURI(id)}` && outerRef.current) {
-      outerRef.current.scrollIntoView();
+  // Determine current state
+  let state;
+  if (returnCode !== null) {
+    if (returnCode === 0) {
+      state = "Succeeded";
+    } else if (returnCode > 0) {
+      state = "Failed";
+    } else {  // returnCode < 0
+      state = "Killed";
     }
-  }, []);
+  } else {
+    state = "Running";
+  }
   
-  useEffect(() => {
-    if (expanded && outerRef.current) {
-      scrollIntoViewIfNeeded(outerRef.current);
-    }
-  }, [
-    expanded,
-    // NB: Force re-evaluation when output changes to non-empty since the
-    // output isn't loaded instantly the first attempt to scroll will fall
-    // short.
-    output != "",
-  ]);
-  
+  // Format progress information
   let progressBar = null;
   if (returnCode === null) {
     let progressRatio = 0;
@@ -550,34 +602,8 @@ function RunningScriptListEntry({
     `;
   }
   
-  useScrollWithUpdates(outputRef, output);
-  
-  const [hideDeclarations, setHideDeclarations] = useState(true);
-  const toggleHideDeclarations = useCallback(() => {
-    setHideDeclarations(state => !state);
-  }, []);
-  
-  let state;
-  if (returnCode !== null) {
-    if (returnCode === 0) {
-      state = "Succeeded";
-    } else if (returnCode > 0) {
-      state = "Failed";
-    } else {  // returnCode < 0
-      state = "Killed";
-    }
-  } else {
-    state = "Running";
-  }
-  
-  let runtime;
-  if (!endTime) {
-    runtime = `Started ${timeSinceStarted}`;
-  } else {
-    const duration = approxDuration(Date.parse(endTime) - Date.parse(startTime));
-    runtime = `${state} ${timeSinceStarted} (took ${duration})`;
-  }
-  
+  // Include the coarse progress in the status line when indicating something
+  // other than a simple fraction.
   let statusLinePrefix = state;
   if (status) {
     // No need to state we're running if script is producing its own status.
@@ -585,14 +611,41 @@ function RunningScriptListEntry({
   }
   if (progress[1] != 0 && progress[1] != 1) {
     // If producing an interesting progress indication, show that
-    statusLinePrefix = `${progress[0]}/${progress[1]}`;
+    statusLinePrefix = `${Math.round(progress[0])}/${Math.round(progress[1])}`;
   }
   
+  // Format approximate timing information
+  const timeSinceStarted = useApproxTimeSince(Date.parse(startTime));
+  const timeSinceEnded = useApproxTimeSince(endTime ? Date.parse(endTime) : 0);
+  let runtime;
+  if (!endTime) {
+    runtime = `Started ${timeSinceStarted}`;
+  } else {
+    const duration = approxDuration(Date.parse(endTime) - Date.parse(startTime));
+    runtime = `${state} ${timeSinceEnded} (took ${duration})`;
+  }
+  
+  // Toggle the display of output and extra script controls
+  const [expanded, setExpanded] = useState(false);
+  const toggleExpanded = useCallback(() => setExpanded(state => !state), []);
+  
+  // Fetch the real time script output (unless not expanded)
+  const output = useRunningScriptOutput(expanded ? id : null);
+  
+  // Toggle filtering of '## ...' declarations in output
+  const [hideDeclarations, setHideDeclarations] = useState(true);
+  const toggleHideDeclarations = useCallback(() => {
+    setHideDeclarations(state => !state);
+  }, []);
+  
+  // Callback which brings up the script starting form with the same arguments
+  // used for this script filled in.
   const onRunAgain = useCallback(() => {
     const encodedArgs = encodeURIComponent(JSON.stringify(args));
     window.location.hash = `#/scripts/${encodeURI(script)}?args=${encodedArgs}`;
   }, [script, args]);
   
+  // Callback which kills a running script or deletes a finished one.
   const killOrDelete = returnCode === null ? "Kill" : "Delete";
   const onKillOrDelete = useCallback(() => {
     if (returnCode === null) {
@@ -601,6 +654,36 @@ function RunningScriptListEntry({
       deleteRunningScript(id);
     }
   }, [id, returnCode]);
+  
+  // Scroll into view on first render if the window hash matches this ID since
+  // the ID will have been set just moments before this entry finally appeared
+  // in the UI.
+  const hash = useHash();
+  const outerRef = useRef();
+  useEffect(() => {
+    if (hash === `#/running/${encodeURI(id)}` && outerRef.current) {
+      outerRef.current.scrollIntoView();
+    }
+  }, []);
+  
+  
+  // Scroll into view when first expanded (since output might immediately run
+  // off the end of the screen).
+  useEffect(() => {
+    if (expanded && outerRef.current) {
+      scrollIntoViewIfNeeded(outerRef.current);
+    }
+  }, [
+    expanded,
+    // NB: Force re-evaluation when output changes to non-empty since the
+    // output isn't loaded instantly the first attempt to scroll will fall
+    // short.
+    output != "",
+  ]);
+  
+  // Keep output viewer scrolled to the bottom
+  const outputRef = useRef();
+  useKeepScrolledToBottom(outputRef, [output]);
   
   let details = null;
   if (expanded) {
@@ -666,6 +749,7 @@ function RunningScriptListEntry({
 };
 
 
+/** Enumerates all running scripts. */
 function RunningScriptList() {
   const runningScripts = useRunningScripts();
   
@@ -683,6 +767,11 @@ function RunningScriptList() {
     `;
   }
   
+  // Order by start time, with the most recently started script at the top.
+  //
+  // NB: We can't do anything clever like keeping running scripts at the top
+  // here because useRunningScripts doesn't report changes in scripts'
+  // liveness.
   runningScripts.sort((a, b) => {
     const aStartTime = Date.parse(a.start_time);
     const bStartTime = Date.parse(b.start_time);
@@ -711,39 +800,49 @@ function RunningScriptList() {
 }
 
 
-
-
-function Main() {
+/**
+ * The main application.
+ *
+ * The coarse grained mode of the application is determined to be one of the
+ * following based on the current window.location.hash:
+ *
+ * * "script-list" mode (when at #/scripts/) -- showing a list of scripts.
+ * * "script-form" mode (when at #/scripts/*) -- showing a form to
+ *   collect arguments to run a script.
+ * * "running-list" mode (when at #/running/*") -- showing the currently
+ *   running list of scripts
+ *
+ * On narrow screens (e.g. phones) these modes largely correspond to which
+ * 'view' is being shown to the user. On desktop screens, the script-list and
+ * running-list modes are visually identical (both are shown at once), but the
+ * script-form mode involves a modal dialogue.
+ */
+function App() {
+  // Determine the broad mode of the application
   const hash = useHash();
+  let mode;
+  if (hash === "#/scripts/") {
+    mode = "script-list";
+  } else if (hash.startsWith("#/scripts/")) {
+    mode = "script-form";
+  } else {  // if (hash.startsWith("#/running/")) {
+    mode = "running-list";
+  }
   
-  const goBack = useCallback(() => {
-    history.back();
-  }, []);
-  
+  // Navigation callbacks
+  const goBack = useCallback(() => history.back(), []);
   const showScriptList = useCallback(() => {
     window.location.hash = "#/scripts/";
   }, []);
   
-  let runScriptModal = null;
-  
-  // The intended 'mode' of the application depends on which hash we've been in
-  // most recently (note that when the start script modal is active we may have
-  // got there from script list *or* the 'Run again' button on a running
-  // script).
-  const modeRef = useRef("running-list");
-  if (hash === "#/scripts/") {
-    modeRef.current = "script-list";
-  } else if (hash.startsWith("#/scripts/")) {
-    modeRef.current = "script-form";
-  } else if (hash.startsWith("#/running/")) {
-    modeRef.current = "running-list";
-  }
-  const mode = modeRef.current;
-  
+  // Generate the modal dialogue with the script-form in it
+  let scriptFormModal = null;
   const scriptHashMatch = hash.match(/^#\/scripts\/([^?]+)([?].*)?$/);
   if (scriptHashMatch) {
+    // Extract the script filename from the URI
     const script = decodeURI(scriptHashMatch[1]);
     
+    // Extract any initial argument values from the URI
     let initialArgs = null;
     if (scriptHashMatch[2] && scriptHashMatch[2].startsWith("?args=")) {
       try {
@@ -757,7 +856,7 @@ function Main() {
       }
     }
     
-    runScriptModal = html`
+    scriptFormModal = html`
       <${Modal} onDismiss=${goBack}>
         <${RunScriptDialogue}
           script=${script}
@@ -769,7 +868,7 @@ function Main() {
   }
   
   return html`
-    <div class="Main ${mode}">
+    <div class="App ${mode}">
       <div class="split">
         <div class="pane pane-left">
           <div class="header">
@@ -794,7 +893,7 @@ function Main() {
           <div class="shade" onClick=${goBack} />
         </div>
       </div>
-      ${runScriptModal}
+      ${scriptFormModal}
     </div>
   `;
 }
@@ -802,7 +901,7 @@ function Main() {
 render(
   html`
     <${RunningScriptInfoProvider}>
-      <${Main}/>
+      <${App}/>
     <//>
   `,
   document.body
