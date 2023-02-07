@@ -90,7 +90,6 @@ def _extract_declarations(file_contents: str) -> dict[str, list[str]]:
             for line in match.group(0).splitlines()
         ]
         
-        print(repr(match.group(0)))
         key, _, first_line = lines_without_hashes[0].partition(":")
         key = key.strip()
         first_line = first_line.strip()
@@ -143,7 +142,6 @@ def enumerate_scripts(script_dir: Path) -> Iterable[Script]:
     for file in script_dir.iterdir():
         if file.is_file() and os.access(file, mode=os.X_OK):
             declarations = _extract_declarations(file.read_text())
-            print(declarations)
 
             name = declarations.get("name", [file.name.rsplit(".", maxsplit=1)[0]])[0]
 

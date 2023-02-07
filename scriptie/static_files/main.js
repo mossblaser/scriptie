@@ -336,7 +336,7 @@ function ScriptList() {
         <li key=${script.script}>
           <a
             href="#/scripts/${encodeURI(script.script)}"
-            title="${script.description} (${script.script})"
+            title="${script.script}"
             tabindex="1"
           >
             ${script.name}
@@ -378,7 +378,8 @@ function RunScriptForm({
   
   let description = null;
   if (script.description) {
-    description = html`<p>${script.description}</p>`;
+    console.log(script.description)
+    description = script.description.split(/\n\n+/).map(line => html`<p>${line}</p>`);
   }
   
   // Focus first input when first displayed
