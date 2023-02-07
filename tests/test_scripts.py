@@ -24,18 +24,34 @@ def test_extract_declarations() -> None:
     assert (
         _extract_declarations(
             """
-        Hello
-        ## foo: abc
-        There
-        ## bar: 1
-        How are you?
-        ## bar: 2
-        ## bar:3
-        """
+                Non-declaration
+                ## foo: abc
+                Another non-declaration between
+                ## bar: 1
+                
+                Some repeated declarations (and varied whitespace around colon)
+                ## bar: 2
+                ## bar:3
+                
+                ## bar : 4 
+                
+                Mult-line;
+                ## baz: Line one
+                ##      Line two
+                ##        Indented line three
+                ##
+                ##      Line four after empty
+                
+                Multi-line with first line blank
+                ## qux:
+                ##  The value
+            """
         )
         == {
             "foo": ["abc"],
-            "bar": ["1", "2", "3"],
+            "bar": ["1", "2", "3", "4"],
+            "baz": ["Line one\nLine two\n  Indented line three\n\nLine four after empty"],
+            "qux": ["The value"],
         }
     )
 

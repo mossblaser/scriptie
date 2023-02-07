@@ -24,6 +24,8 @@ from fractions import Fraction
 
 from subprocess import PIPE
 
+from textwrap import dedent
+
 
 class Argument(NamedTuple):
     description: str | None
@@ -44,16 +46,63 @@ class Script:
 #
 #    ## key: value
 #
-SCRIPTIE_DECLARATION_RE = re.compile(
-    r"^\s*##\s*([a-zA-Z0-9_-]+)\s*:\s*(.*)$",
+# Or multi-line form:
+#
+#    ## key: A multi-line value may be continued
+#    ##      onto a newline like this, so long as
+#    ##      at least two spaces follow the '##'.
+#    ##
+#    ##      Blank lines are allowed.
+#    ##
+#    ##      Indentation will also be preserved
+#    ##      after any common whitespace is removed.
+#    ##
+#    ##          This will be indented by 4-spaces.
+#
+SCRIPTIE_MULTILINE_DECLARATION_RE = re.compile(
+    (
+        # Ignore leading whitespace
+        r"^[ \t]*"
+        # The ##, key and colon
+        r"## [a-zA-Z0-9_-]+[ \t]*:"
+        # First line of value
+        r".*$"
+        # Subseqeuent lines of value
+        r"(?:"
+        r"(?:\n^[ \t]*##  +.*$)"
+        r"|"
+        r"(?:\n^[ \t]*##[ \t]*$)"  # Empty lines may or may not have any special indent
+        r")*"
+    ),
     re.MULTILINE,
 )
+
+# Regex matching a single line declaration
+SCRIPTIE_DECLARATION_RE = re.compile(r"^\s*## ([a-zA-Z0-9_-]+)\s*:\s*(.*)$")
 
 
 def _extract_declarations(file_contents: str) -> dict[str, list[str]]:
     """Extract declarations from a file."""
     declarations: dict[str, list[str]] = {}
-    for key, value in SCRIPTIE_DECLARATION_RE.findall(file_contents):
+    for match in SCRIPTIE_MULTILINE_DECLARATION_RE.finditer(file_contents):
+        lines_without_hashes = [
+            line.partition("##")[2]
+            for line in match.group(0).splitlines()
+        ]
+        
+        print(repr(match.group(0)))
+        key, _, first_line = lines_without_hashes[0].partition(":")
+        key = key.strip()
+        first_line = first_line.strip()
+        
+        remaining_lines = "\n".join(lines_without_hashes[1:])
+        remaining_lines = dedent(remaining_lines).rstrip()
+        
+        if first_line and remaining_lines:
+            value = first_line + "\n" + remaining_lines
+        else:
+            value = first_line or remaining_lines
+        
         declarations.setdefault(key, []).append(value)
     return declarations
 
@@ -94,6 +143,7 @@ def enumerate_scripts(script_dir: Path) -> Iterable[Script]:
     for file in script_dir.iterdir():
         if file.is_file() and os.access(file, mode=os.X_OK):
             declarations = _extract_declarations(file.read_text())
+            print(declarations)
 
             name = declarations.get("name", [file.name.rsplit(".", maxsplit=1)[0]])[0]
 

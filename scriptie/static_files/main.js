@@ -608,7 +608,7 @@ function RunningScriptListEntry({
     if (hideDeclarations) {
       const outputLines = output.split("\n");
       const filteredOutputLines = outputLines.filter(
-        line => !line.match(/^\s*##\s*([a-zA-Z0-9_-]+)\s*:\s*(.*)$/)
+        line => !line.match(/^\s*## ([a-zA-Z0-9_-]+)\s*:\s*(.*)$/)
       );
       filteredOutput = filteredOutputLines.join("\n");
     }
