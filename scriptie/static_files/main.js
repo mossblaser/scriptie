@@ -623,7 +623,7 @@ function RunningScriptListEntry({
   }
   if (progress[1] != 0 && progress[1] != 1) {
     // If producing an interesting progress indication, show that
-    statusLinePrefix = `${Math.round(progress[0])}/${Math.round(progress[1])}`;
+    statusLinePrefix = `${Math.floor(progress[0])}/${progress[1]}`;
   }
   
   // Format approximate timing information
