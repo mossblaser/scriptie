@@ -379,7 +379,6 @@ function RunScriptForm({
   
   let description = null;
   if (script.description) {
-    console.log(script.description)
     description = script.description.split(/\n\n+/).map(line => html`<p>${line}</p>`);
   }
   
