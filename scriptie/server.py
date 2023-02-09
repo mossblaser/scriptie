@@ -487,7 +487,7 @@ def make_app(script_dir: Path) -> web.Application:
     app["cleanup_tasks"] = []
     app["websockets"] = WeakSet()
 
-    @app.on_cleanup.append
+    @app.on_shutdown.append
     async def cleanup(app: web.Application) -> None:
         # Make sure all scripts have exited by now
         for rs in cast(dict[str, RunningScript], app["running_scripts"]).values():
