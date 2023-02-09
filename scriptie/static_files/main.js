@@ -7,6 +7,7 @@ import {
   killRunningScript,
   deleteRunningScript,
   RunningScriptInfoProvider,
+  useRunningWebsocketConnected,
   useRunningScripts,
   useRunningScript,
   useRunningScriptProgress,
@@ -887,6 +888,17 @@ function App() {
     `;
   }
   
+  // Show notification if connectivity lost
+  let connectivityNotification = null;
+  const connected = useRunningWebsocketConnected();
+  if (!connected) {
+    connectivityNotification = html`
+      <div class="connectivity-notification">
+        Connection to server lost.
+      </div>
+    `;
+  }
+  
   return html`
     <div class="App ${mode}">
       <div class="split">
@@ -906,6 +918,7 @@ function App() {
         </div>
       </div>
       ${scriptFormModal}
+      ${connectivityNotification}
     </div>
   `;
 }

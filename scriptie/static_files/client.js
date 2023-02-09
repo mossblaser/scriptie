@@ -172,6 +172,13 @@ class RunningWebSocketClient {
     // which to be called with the response when it is eventually received.
     this._pending = {}
     
+    this.connected = false;
+    
+    this._eventListeners = {
+      "connect": [],
+      "disconnect": [],
+    };
+    
     this._connect()
   }
   
@@ -191,6 +198,9 @@ class RunningWebSocketClient {
   }
   
   _onOpen(evt) {
+    this.connected = true;
+    this._sendEvent("connect");
+    
     // (Re-)send any pending messages upon connection
     for (const {request} of Object.values(this._pending)) {
       this._ws.send(JSON.stringify(request));
@@ -199,9 +209,15 @@ class RunningWebSocketClient {
   
   _onClose(evt) {
     // Reconnect to the websocket if it closes for whatever reason after 1s
-    if (!this._shutdown) {
+    if (!this._shutdown && this.connected) {
       console.warn("RunningWebSocketClient disconnected, reconnecting in 1s...");
     }
+    
+    if (this.connected) {
+      this.connected = false;
+      this._sendEvent("disconnect");
+    }
+    
     this._ws = null;
     setTimeout(() => {
       if (!this._shutdown) {
@@ -211,7 +227,7 @@ class RunningWebSocketClient {
   }
   
   _onMessage(evt) {
-    if (self._shutdown) {
+    if (this._shutdown) {
       return;  // Do nothing after shutdown
     }
     
@@ -231,11 +247,32 @@ class RunningWebSocketClient {
   }
   
   close() {
-    self._shutdown = true;
-    self._ws.close();
+    this._shutdown = true;
+    this._ws.close();
     
     for (const {reject} of Object.values(this._pending)) {
       reject("Connection shutting down.")
+    }
+  }
+  
+  /**
+   * Listen for a websocket state change.
+   *
+   * Available events are 'connect' and 'disconnect'.
+   */
+  addEventListener(name, cb) {
+    this._eventListeners[name].push(cb);
+  }
+  removeEventListener(name, cb) {
+    const eventListeners = this._eventListeners[name];
+    const i = eventListeners.find(cb);
+    if (i >= 0) {
+      eventListeners.splice(i, 1);
+    }
+  }
+  _sendEvent(name) {
+    for (const cb of this._eventListeners[name]) {
+      cb();
     }
   }
   
@@ -286,6 +323,31 @@ export function RunningScriptInfoProvider({children}) {
       ${children}
     <//>
   `;
+}
+
+
+/**
+ * Returns the current 'connected' state of the running websocket client
+ * provided by the surrounding RunningWebSocketClientContext.
+ */
+export function useRunningWebsocketConnected() {
+  const runningWebSocketClient = useContext(RunningWebSocketClientContext);
+  const [connected, setConnected] = useState(runningWebSocketClient.connected);
+  
+  useEffect(() => {
+    const onConnect = () => setConnected(true);
+    const onDisconnect = () => setConnected(false);
+    
+    runningWebSocketClient.addEventListener("connect", onConnect);
+    runningWebSocketClient.addEventListener("disconnect", onDisconnect);
+    
+    return () => {
+      runningWebSocketClient.removeEventListener("connect", onConnect);
+      runningWebSocketClient.removeEventListener("disconnect", onDisconnect);
+    };
+  }, [runningWebSocketClient]);
+  
+  return connected;
 }
 
 
