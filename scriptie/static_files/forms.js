@@ -156,7 +156,6 @@ export function ArgumentInput({
     return html`<input type="password" ref=${ref} ...${props} value="${d(typeArg)}" />`;
   } else if (type === "file") {
     const filetypes = (typeArg || "").split(":");
-    // XXX: TODO: Handle initial value and custom filenames!
     let input;
     if (isUpload) {
       input = html`
