@@ -110,7 +110,7 @@ import asyncio
 
 from typing import cast, Any
 
-from aiohttp import web, BodyPartReader, WSMsgType
+from aiohttp import web, BodyPartReader, WSMsgType, WSCloseCode
 
 from pathlib import Path
 
@@ -125,6 +125,8 @@ import datetime
 from tempfile import TemporaryDirectory
 
 from itertools import count
+
+from weakref import WeakSet
 
 from scriptie.scripts import (
     enumerate_scripts,
@@ -317,9 +319,11 @@ async def get_running(request: web.Request) -> web.Response:
 @routes.get("/running/ws")
 async def get_running_websocket(request: web.Request) -> web.WebSocketResponse:
     running_scripts: dict[str, RunningScript] = request.app["running_scripts"]
+    websockets: WeakSet[WebSocketResponse] = request.app["websockets"]
 
     ws = web.WebSocketResponse()
     await ws.prepare(request)
+    websockets.add(ws)
     
     tasks: dict[str, asyncio.Task] = {}
     
@@ -393,6 +397,8 @@ async def get_running_websocket(request: web.Request) -> web.WebSocketResponse:
     except Exception as exc:
         traceback.print_exc()
     finally:
+        websockets.discard(ws)
+        
         while tasks:
             tasks.popitem()[1].cancel()
 
@@ -479,13 +485,24 @@ def make_app(script_dir: Path) -> web.Application:
     app["running_scripts_changed"] = [asyncio.Event()]
     app["temporary_dirs"] = {}  # List of TemporaryDirectory per running script
     app["cleanup_tasks"] = []
+    app["websockets"] = WeakSet()
 
     @app.on_cleanup.append
     async def cleanup(app: web.Application) -> None:
         # Make sure all scripts have exited by now
         for rs in cast(dict[str, RunningScript], app["running_scripts"]).values():
             await rs.kill()
+        
+        # Close any ongoing websocket connections
+        websockets: WeakSet[WebSocketResponse] = app["websockets"]
+        for ws in set(websockets):
+            await ws.close(
+                code=WSCloseCode.GOING_AWAY,
+                message="Server shutdown",
+            )
 
+        # Cancel all scheduled cleanup tasks (temporary directories will be
+        # deleted automatically anyway on shutdown)
         for task in app["cleanup_tasks"]:
             task.cancel()
             try:
@@ -496,7 +513,49 @@ def make_app(script_dir: Path) -> web.Application:
     return app
 
 
-if __name__ == "__main__":
-    import sys
+def main() -> None:
+    """
+    Run the server from the command line.
+    """
+    import argparse
+    
+    parser = argparse.ArgumentParser(
+        description="Serve a simple web UI for launching and monitoring scripts."
+    )
+    
+    parser.add_argument(
+        "script_directory",
+        type=Path,
+        default=Path(),
+        help="""
+            The directory containing scripts. Defaults to the current
+            directory.
+        """,
+    )
+    
+    parser.add_argument(
+        "--host",
+        "-H",
+        default="127.0.0.1",
+        help="The host interface to serve on. Defaults to %(default)s.",
+    )
+    
+    parser.add_argument(
+        "--port",
+        "-P",
+        default=8080,
+        type=int,
+        help="The port to serve on. Defaults to %(default)s.",
+    )
+    
+    args = parser.parse_args()
+    
+    web.run_app(
+        make_app(args.script_directory),
+        host=args.host,
+        port=args.port,
+    )
 
-    web.run_app(make_app(Path(sys.argv[1])))
+
+if __name__ == "__main__":
+    main()

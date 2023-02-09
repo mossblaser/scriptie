@@ -9,6 +9,12 @@ dependencies = [
     "aiohttp",
 ]
 
+[project.scripts]
+scriptie = "scriptie.server:main"
+
+[tool.setuptools.package-data]
+"*" = ["*.html", "*.js", "*.css"]
+
 [tool.pytest.ini_options]
 minversion = "6.0"
 testpaths = [
