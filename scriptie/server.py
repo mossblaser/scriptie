@@ -319,7 +319,7 @@ async def get_running(request: web.Request) -> web.Response:
 @routes.get("/running/ws")
 async def get_running_websocket(request: web.Request) -> web.WebSocketResponse:
     running_scripts: dict[str, RunningScript] = request.app["running_scripts"]
-    websockets: WeakSet[WebSocketResponse] = request.app["websockets"]
+    websockets: WeakSet[web.WebSocketResponse] = request.app["websockets"]
 
     ws = web.WebSocketResponse()
     await ws.prepare(request)
@@ -494,11 +494,11 @@ def make_app(script_dir: Path) -> web.Application:
             await rs.kill()
         
         # Close any ongoing websocket connections
-        websockets: WeakSet[WebSocketResponse] = app["websockets"]
+        websockets: WeakSet[web.WebSocketResponse] = app["websockets"]
         for ws in set(websockets):
             await ws.close(
                 code=WSCloseCode.GOING_AWAY,
-                message="Server shutdown",
+                message=b"Server shutdown",
             )
 
         # Cancel all scheduled cleanup tasks (temporary directories will be
