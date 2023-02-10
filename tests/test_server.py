@@ -29,11 +29,16 @@ def script_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def app(script_dir: Path) -> web.Application:
+    return make_app(script_dir)
+
+
+@pytest.fixture
 async def server(
     aiohttp_client: Callable[[web.Application], Awaitable[ClientSession]],
-    script_dir: Path,
+    app: web.Application,
 ) -> ClientSession:
-    return await aiohttp_client(make_app(script_dir))
+    return await aiohttp_client(app)
 
 
 class RunningWSCommandError(Exception):
@@ -211,6 +216,28 @@ async def test_run_script_no_args(
     assert args == "\n"
 
 
+async def test_run_script_working_directory(
+    server: ClientSession,
+    running_ws_client: RunningWSClient,
+    make_script: Callable[[str, str], None],
+) -> None:
+    make_script(
+        "write_file.sh",
+        "#!/bin/sh\necho Hello > hello.txt",
+    )
+    resp = await server.post("/scripts/write_file.sh")
+    assert resp.status == 200
+    rs_id = await resp.text()
+
+    # Wait for script to complete
+    await running_ws_client.get_return_code(rs_id=rs_id)
+
+    # Check file written to working directory
+    details = await (await server.get(f"/running/{rs_id}")).json()
+    working_directory = Path(details["working_directory"])
+    assert (working_directory / "hello.txt").read_text() == "Hello\n"
+
+
 @pytest.mark.parametrize("multipart", [False, True])
 async def test_run_script_simple_args(
     server: ClientSession,
@@ -335,64 +362,67 @@ async def test_run_script_bad_arg_names(
 
 
 async def test_run_script_cleanup(
-    server: ClientSession,
-    running_ws_client: RunningWSClient,
+    aiohttp_client: Callable[[web.Application], Awaitable[ClientSession]],
+    script_dir: Path,
     print_args_sh: None,
     tmp_path: Path,
-    monkeypatch: Any,
 ) -> None:
-    import scriptie.server as server_module
-
-    monkeypatch.setattr(server_module, "CLEANUP_DELAY", 0.2)
-
-    # Send a file
-    file_to_send = tmp_path / "to_send.txt"
-    file_to_send.write_text("Hello, world!")
-    with MultipartWriter("form-data") as mpwriter:
-        part = mpwriter.append(file_to_send.open("rb"))
-        part.set_content_disposition(
-            "attachment",
-            name="arg0",
-            filename="to_send.txt",
-        )
-
-    resp = await server.post("/scripts/print_args.sh", data=mpwriter)
-    assert resp.status == 200
-    rs_id = await resp.text()
-
-    # Wait for exit
-    await running_ws_client.get_return_code(rs_id=rs_id)
+    server = await aiohttp_client(make_app(script_dir, job_cleanup_delay=0.2))
     
-    # Make sure the running list still includes the old script
-    with pytest.raises(asyncio.TimeoutError):
-        await asyncio.wait_for(
-            running_ws_client.wait_for_running_change(old_rs_ids=[rs_id]),
-            timeout=0.1,
-        )
+    running_ws_client = RunningWSClient(server)
+    await running_ws_client._open()
+    try:
+        # Send a file
+        file_to_send = tmp_path / "to_send.txt"
+        file_to_send.write_text("Hello, world!")
+        with MultipartWriter("form-data") as mpwriter:
+            part = mpwriter.append(file_to_send.open("rb"))
+            part.set_content_disposition(
+                "attachment",
+                name="arg0",
+                filename="to_send.txt",
+            )
 
-    # Check temporary file still exists
-    f = Path((await (await server.get(f"/running/{rs_id}/output")).text()).rstrip())
-    assert f.is_file()
+        resp = await server.post("/scripts/print_args.sh", data=mpwriter)
+        assert resp.status == 200
+        rs_id = await resp.text()
 
-    wait_for_running_change_task = asyncio.create_task(
-        running_ws_client.wait_for_running_change(old_rs_ids=[rs_id])
-    )
-
-    # Wait for timeout
-    await asyncio.sleep(0.1)
-
-    # Should be gone from history
-    with pytest.raises(RunningWSCommandError):
+        # Wait for exit
         await running_ws_client.get_return_code(rs_id=rs_id)
-    
-    # Make sure wait_for_running_change unblocks
-    assert await wait_for_running_change_task == []
+        
+        # Make sure the running list still includes the old script
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(
+                running_ws_client.wait_for_running_change(old_rs_ids=[rs_id]),
+                timeout=0.1,
+            )
 
-    # Temporary file should also be gone
-    assert not f.is_file()
+        # Check temporary file still exists
+        f = Path((await (await server.get(f"/running/{rs_id}/output")).text()).rstrip())
+        assert f.is_file()
 
-    # Running list should be empty too
-    assert await (await server.get("/running/")).json() == []
+        wait_for_running_change_task = asyncio.create_task(
+            running_ws_client.wait_for_running_change(old_rs_ids=[rs_id])
+        )
+
+        # Wait for timeout
+        await asyncio.sleep(0.1)
+
+        # Should be gone from history
+        with pytest.raises(RunningWSCommandError):
+            await running_ws_client.get_return_code(rs_id=rs_id)
+        
+        # Make sure wait_for_running_change unblocks
+        assert await wait_for_running_change_task == []
+
+        # Temporary file should also be gone
+        assert not f.is_file()
+
+        # Running list should be empty too
+        assert await (await server.get("/running/")).json() == []
+    finally:
+        await running_ws_client._close()
+
 
 
 async def test_enumerate_running(
@@ -444,6 +474,9 @@ async def test_enumerate_running(
         - datetime.datetime.fromisoformat(running[1].pop("start_time"))
     ).total_seconds() == pytest.approx(0, abs=0.05)
 
+    # Both should have unique working directories
+    assert running[0].pop("working_directory") != running[1].pop("working_directory")
+
     # Check remaining (more predictable) values
     assert running == [
         {
@@ -478,6 +511,8 @@ async def test_enumerate_running(
     # Both should have ended about now...
     running[0].pop("start_time")
     running[1].pop("start_time")
+    running[0].pop("working_directory")
+    running[1].pop("working_directory")
     assert (
         datetime.datetime.now()
         - datetime.datetime.fromisoformat(running[0].pop("end_time"))
@@ -486,7 +521,7 @@ async def test_enumerate_running(
         datetime.datetime.now()
         - datetime.datetime.fromisoformat(running[1].pop("end_time"))
     ).total_seconds() == pytest.approx(0, abs=0.05)
-
+    
     # Check remaining (more predictable) values
     assert running == [
         {
@@ -554,10 +589,12 @@ async def test_delete_script(
     exit_rs_id, sleep_rs_id = rs_ids
 
     # Get temporary file names
-    files = [
-        Path(rs_info["args"][0])
-        for rs_info in await (await server.get(f"/running/")).json()
-    ]
+    files = []
+    for rs_info in await (await server.get(f"/running/")).json():
+        # The uploaded file
+        files.append(Path(rs_info["args"][0]))
+        # The working directory
+        files.append(Path(rs_info["working_directory"]))
 
     # Wait for quick script to exit
     assert await running_ws_client.get_return_code(rs_id=exit_rs_id) == 0
@@ -580,9 +617,10 @@ async def test_delete_script(
     # Make sure both no longer listed
     assert await (await server.get("/running/")).json() == []
 
-    # Make sure temporary files are cleaned up
+    # Make sure temporary files/directories are cleaned up
     for file in files:
         assert not file.is_file()
+        assert not file.is_dir()
 
 
 async def test_kill(

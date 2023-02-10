@@ -204,8 +204,11 @@ class TestRunningScript:
         tmp_path: Path,
         make_script: Callable[[str], Script],
     ) -> None:
-        (tmp_path / "foo.txt").write_text("Hello, world!")
-        rs = RunningScript(make_script("cat ./foo.txt"))
+        working_directory = tmp_path / "working_directory"
+        working_directory.mkdir()
+        (working_directory / "foo.txt").write_text("Hello, world!")
+        
+        rs = RunningScript(make_script("cat ./foo.txt"), [], working_directory)
 
         await rs.get_return_code()
         assert await rs.get_output() == "Hello, world!"

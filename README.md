@@ -261,3 +261,13 @@ whilst those with a non-zero return code are treated as failed.
 
 In the case of a negative exit code (indicating the script was ended by some
 signal) the script is reported as having been killed.
+
+
+### Working directory and uploaded files
+
+All scripts are executed in an empty, temporary working directory. Further, all
+uploaded files are uploaded to separate temporary directories.
+
+Temporary directories are deleted when the Scriptie server exits, after
+`--job-cleanup-delay` (by default 24 hours after completion) or when the 'Delete'
+button is pressed.

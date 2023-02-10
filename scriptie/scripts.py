@@ -190,9 +190,15 @@ class RunningScript:
     _stdout_task: asyncio.Task | None
     _stderr_task: asyncio.Task | None
 
-    def __init__(self, script: Script, args: list[str] = []) -> None:
+    def __init__(
+        self,
+        script: Script,
+        args: list[str] = [],
+        working_directory: Path | None = None,
+    ) -> None:
         self.script = script
         self.args = args
+        self.working_directory = working_directory or self.script.executable.parent
 
         self.start_time = datetime.datetime.now()
         self.end_time = None
@@ -214,7 +220,7 @@ class RunningScript:
         self._subprocess = await asyncio.create_subprocess_exec(
             str(self.script.executable),
             *self.args,
-            cwd=str(self.script.executable.parent),
+            cwd=str(self.working_directory),
             stdout=PIPE,
             stderr=PIPE,
             bufsize=0,

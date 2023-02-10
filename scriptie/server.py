@@ -134,12 +134,6 @@ from scriptie.scripts import (
 )
 
 
-CLEANUP_DELAY = 24 * 60 * 60
-"""
-How long to wait (in seconds) before removing complete scripts from the
-records.
-"""
-
 STATIC_FILE_DIR = Path(__file__).parent / "static_files"
 """
 Directory in which static files (e.g. the web UI) are stored.
@@ -232,7 +226,7 @@ async def run_script(request: web.Request) -> web.Response:
                     args_by_name[part.name] = ""
                 else:
                     temp_dir = TemporaryDirectory(
-                        prefix=f"{script.executable.name}_",
+                        prefix=f"{script.executable.name}_upload_",
                         ignore_cleanup_errors=True,
                     )
                     temp_dirs.append(temp_dir)
@@ -256,16 +250,23 @@ async def run_script(request: web.Request) -> web.Response:
     if args_by_name:
         raise web.HTTPBadRequest(text=f"Unexpected fields: {', '.join(args_by_name)}")
 
+    # Create working directory for script
+    working_directory = TemporaryDirectory(
+        prefix=f"{script.executable.name}_",
+        ignore_cleanup_errors=True,
+    )
+    temp_dirs.append(working_directory)
+
     # Actually run the script
     rs_id = str(uuid.uuid4())
-    rs = running_scripts[rs_id] = RunningScript(script, args)
+    rs = running_scripts[rs_id] = RunningScript(script, args, Path(working_directory.name))
     temporary_dirs[rs_id] = temp_dirs
     running_scripts_changed(request.app)
 
     async def cleanup() -> None:
         try:
             await rs.get_return_code()
-            await asyncio.sleep(CLEANUP_DELAY)
+            await asyncio.sleep(request.app["job_cleanup_delay"])
             running_scripts.pop(rs_id, None)
             running_scripts_changed(request.app)
         finally:  # In case of cancellation
@@ -297,6 +298,7 @@ def enumerate_running(running_scripts: dict[str, RunningScript]) -> list[dict[st
             "script": rs.script.executable.name,
             "name": rs.script.name,
             "args": rs.args,
+            "working_directory": str(rs.working_directory),
             "start_time": rs.start_time.isoformat(),
             "end_time": rs.end_time.isoformat()
             if rs.end_time is not None
@@ -419,6 +421,7 @@ async def get_running_script(request: web.Request) -> web.Response:
             "script": rs.script.executable.name,
             "name": rs.script.name,
             "args": rs.args,
+            "working_directory": str(rs.working_directory),
             "start_time": rs.start_time.isoformat(),
             "end_time": rs.end_time.isoformat() if rs.end_time is not None else None,
             "progress": rs.progress,
@@ -476,11 +479,12 @@ async def get_index(request: web.Request) -> web.FileResponse:
 
 routes.static('/', STATIC_FILE_DIR)
 
-def make_app(script_dir: Path) -> web.Application:
+def make_app(script_dir: Path, job_cleanup_delay: float = 24 * 60 * 60) -> web.Application:
     app = web.Application()
     app.add_routes(routes)
 
     app["script_dir"] = script_dir
+    app["job_cleanup_delay"] = job_cleanup_delay
     app["running_scripts"] = {}
     app["running_scripts_changed"] = [asyncio.Event()]
     app["temporary_dirs"] = {}  # List of TemporaryDirectory per running script
@@ -548,10 +552,21 @@ def main() -> None:
         help="The port to serve on. Defaults to %(default)s.",
     )
     
+    parser.add_argument(
+        "--job-cleanup-delay",
+        "-t",
+        default=24 * 60 * 60,
+        type=float,
+        help="""
+            Number of seconds after which a completed job will be removed from
+            the UI and its temporary files deleted. Default = %(default)d.
+        """,
+    )
+    
     args = parser.parse_args()
     
     web.run_app(
-        make_app(args.script_directory),
+        make_app(args.script_directory, args.job_cleanup_delay),
         host=args.host,
         port=args.port,
     )
